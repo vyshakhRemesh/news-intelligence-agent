@@ -1,0 +1,16 @@
+# .gitignore
+# Environments
+venv/
+env/
+.env
+
+# Python Caches
+__pycache__/
+*.pyc
+*.pyo
+
+# IDEs
+.vscode/
+
+# Local Database
+*.sqlite3
