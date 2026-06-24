@@ -1,9 +1,12 @@
 # main.py
 import logging
 from datetime import datetime
-from src.ingestion.newsapi_client import NewsAPIClient
+# from src.ingestion.newsapi_client import NewsAPIClient
+from src.ingestion.aggregator import NewsAggregator
 from src.database.connection import init_db, SessionLocal
 from src.database.models import RawArticles
+
+from email.utils import parsedate_to_datetime
 
 # Configure the global logging layout for our terminal
 logging.basicConfig(
@@ -12,18 +15,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def parse_iso_date(date_str: str) -> datetime:
-    """
-    Helper function to safely parse ISO timestamp strings from the API
-    into Python datetime objects. Falls back to current time if parsing fails.
-    """
+# def parse_iso_date(date_str: str) -> datetime:
+#     """
+#     Helper function to safely parse ISO timestamp strings from the API
+#     into Python datetime objects. Falls back to current time if parsing fails.
+#     """
+#     if not date_str:
+#         return datetime.utcnow()
+#     try:
+#         # NewsAPI returns timestamps formatted as "2026-06-06T03:52:00Z"
+#         # We strip the trailing 'Z' to make it compatible with standard parsing
+#         return datetime.strptime(date_str.replace("Z", ""), "%Y-%m-%dT%H:%M:%S")
+#     except ValueError:
+#         return datetime.utcnow()
+
+
+def parse_iso_date(date_str):
+
     if not date_str:
         return datetime.utcnow()
+
     try:
-        # NewsAPI returns timestamps formatted as "2026-06-06T03:52:00Z"
-        # We strip the trailing 'Z' to make it compatible with standard parsing
-        return datetime.strptime(date_str.replace("Z", ""), "%Y-%m-%dT%H:%M:%S")
-    except ValueError:
+        return datetime.strptime(
+            date_str.replace("Z", ""),
+            "%Y-%m-%dT%H:%M:%S"
+        )
+    except:
+        pass
+
+    try:
+        return parsedate_to_datetime(date_str)
+    except:
         return datetime.utcnow()
 
 def run_pipeline():
@@ -33,17 +55,25 @@ def run_pipeline():
     init_db()
     
     # 2. Instantiate our API client and fetch top technology headlines
-    api_client = NewsAPIClient()
-    articles_data = api_client.fetch_top_headlines(category="technology", page_size=20)
+
+            # api_client = NewsAPIClient()
+            # articles_data = api_client.fetch_top_headlines(category="technology", page_size=20)
     
+    aggregator = NewsAggregator()
+
+    articles_data = aggregator.fetch_all()
+    logger.info(f"Aggregator returned {len(articles_data)} articles")
+
+
     # If the network request failed entirely, exit early to protect the database
     if not articles_data:
-        logger.warning("No data retrieved from NewsAPI. Terminating pipeline cycle.")
+        logger.warning("No data retrieved from any configured source. Terminating pipeline cycle.")
         return
 
     # 3. Establish a transactional database session context
     db = SessionLocal()
     new_records_count = 0
+    seen_urls = set() #deduplication code
 
     try:
         logger.info("Processing articles and filtering for uniqueness...")
@@ -54,6 +84,12 @@ def run_pipeline():
             # Skip entries that lack a valid web link
             if not url:
                 continue
+
+            # In-memory deduplication
+            if url in seen_urls:
+                continue
+
+            seen_urls.add(url)
 
             # Layer 3 Deduplication Check: Look up the URL in our database
             # If it already exists, skip it entirely to prevent duplicate rows
