@@ -1,17 +1,14 @@
 # .gitignore
 # Environments
 .venv/
-<<<<<<< Updated upstream
 venv/
-=======
->>>>>>> Stashed changes
 env/
 .env
 
 # Python Caches
 __pycache__/
 *.pyc
-*.pyo
+*.pyo   
 
 # IDEs
 .vscode/

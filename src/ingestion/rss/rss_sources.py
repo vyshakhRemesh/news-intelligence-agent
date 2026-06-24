@@ -4,7 +4,3 @@ RSS_FEEDS = {
     "The Guardian": "https://www.theguardian.com/world/rss",
     "The Hindu": "https://www.thehindu.com/feeder/default.rss"
 }
-<<<<<<< Updated upstream
-=======
-# Add the correct rss sources
->>>>>>> Stashed changes
