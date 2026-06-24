@@ -6,11 +6,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+
     DATABASE_URL = os.getenv("DATABASE_URL")
-    
-    # Fail fast: Stop the program immediately if configurations are missing
-    if not NEWS_API_KEY:
-        raise ValueError("CRITICAL ERROR: NEWS_API_KEY is missing from your .env file.")
+
+    NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+    GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
+    MEDIASTACK_API_KEY = os.getenv("MEDIASTACK_API_KEY")
+    CURRENTS_API_KEY = os.getenv("CURRENTS_API_KEY")
+    NYTIMES_API_KEY = os.getenv("NYTIMES_API_KEY")
+
     if not DATABASE_URL:
-        raise ValueError("CRITICAL ERROR: DATABASE_URL is missing from your .env file.")
+        raise ValueError(
+            "DATABASE_URL missing from .env"
+        )
