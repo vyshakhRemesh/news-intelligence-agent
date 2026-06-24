@@ -1,48 +1,48 @@
-import requests
-from src.config import Config
+# import requests
+# from src.config import Config
 
 
-class NYTimesClient:
+# class NYTimesClient:
 
-    BASE_URL = "https://api.nytimes.com/svc/topstories/v2/home.json"
+#     BASE_URL = "https://api.nytimes.com/svc/topstories/v2/home.json"
 
-    def fetch_articles(self):
+#     def fetch_articles(self):
 
-        if not Config.NYTIMES_API_KEY:
-            return []
+#         if not Config.NYTIMES_API_KEY:
+#             return []
 
-        try:
+#         try:
 
-            response = requests.get(
-                self.BASE_URL,
-                params={
-                    "api-key": Config.NYTIMES_API_KEY
-                }
-            )
+#             response = requests.get(
+#                 self.BASE_URL,
+#                 params={
+#                     "api-key": Config.NYTIMES_API_KEY
+#                 }
+#             )
 
-            response.raise_for_status()
+#             response.raise_for_status()
 
-            data = response.json()
+#             data = response.json()
 
-            articles = []
+#             articles = []
 
-            for item in data.get("results", []):
+#             for item in data.get("results", []):
 
-                articles.append({
-                    "title": item.get("title"),
-                    "author": item.get("byline"),
-                    "source": {
-                        "name": "New York Times"
-                    },
-                    "description": item.get("abstract"),
-                    "content": item.get("abstract"),
-                    "url": item.get("url"),
-                    "publishedAt": item.get("published_date"),
-                    "source_type": "API"
-                })
+#                 articles.append({
+#                     "title": item.get("title"),
+#                     "author": item.get("byline"),
+#                     "source": {
+#                         "name": "New York Times"
+#                     },
+#                     "description": item.get("abstract"),
+#                     "content": item.get("abstract"),
+#                     "url": item.get("url"),
+#                     "publishedAt": item.get("published_date"),
+#                     "source_type": "API"
+#                 })
 
-            return articles
+#             return articles
 
-        except Exception as e:
-            print(f"NYTimes Error: {e}")
-            return []
+#         except Exception as e:
+#             print(f"NYTimes Error: {e}")
+#             return []
