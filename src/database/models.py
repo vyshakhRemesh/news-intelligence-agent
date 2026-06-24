@@ -15,6 +15,10 @@ class RawArticles(Base):
     url: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False)
     published_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    source_type: Mapped[str] = mapped_column(
+    String(20),
+    nullable=True
+)
 
     def __repr__(self)->str:
         return f"<RawArticle(title={self.title[:30]}...,source={self.source_name})>"

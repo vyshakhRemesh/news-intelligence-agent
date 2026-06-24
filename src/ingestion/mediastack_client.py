@@ -1,50 +1,50 @@
-import requests
-from src.config import Config
+# import requests
+# from src.config import Config
 
 
-class MediastackClient:
+# class MediastackClient:
 
-    BASE_URL = "http://api.mediastack.com/v1/news"
+#     BASE_URL = "http://api.mediastack.com/v1/news"
 
-    def fetch_articles(self):
+#     def fetch_articles(self):
 
-        if not Config.MEDIASTACK_API_KEY:
-            return []
+#         if not Config.MEDIASTACK_API_KEY:
+#             return []
 
-        try:
+#         try:
 
-            response = requests.get(
-                self.BASE_URL,
-                params={
-                    "access_key": Config.MEDIASTACK_API_KEY,
-                    "languages": "en",
-                    "limit": 20
-                }
-            )
+#             response = requests.get(
+#                 self.BASE_URL,
+#                 params={
+#                     "access_key": Config.MEDIASTACK_API_KEY,
+#                     "languages": "en",
+#                     "limit": 20
+#                 }
+#             )
 
-            response.raise_for_status()
+#             response.raise_for_status()
 
-            data = response.json()
+#             data = response.json()
 
-            articles = []
+#             articles = []
 
-            for item in data.get("data", []):
+#             for item in data.get("data", []):
 
-                articles.append({
-                    "title": item.get("title"),
-                    "author": item.get("author"),
-                    "source": {
-                        "name": item.get("source")
-                    },
-                    "description": item.get("description"),
-                    "content": item.get("description"),
-                    "url": item.get("url"),
-                    "publishedAt": item.get("published_at"),
-                    "source_type": "API"
-                })
+#                 articles.append({
+#                     "title": item.get("title"),
+#                     "author": item.get("author"),
+#                     "source": {
+#                         "name": item.get("source")
+#                     },
+#                     "description": item.get("description"),
+#                     "content": item.get("description"),
+#                     "url": item.get("url"),
+#                     "publishedAt": item.get("published_at"),
+#                     "source_type": "API"
+#                 })
 
-            return articles
+#             return articles
 
-        except Exception as e:
-            print(f"Mediastack Error: {e}")
-            return []
+#         except Exception as e:
+#             print(f"Mediastack Error: {e}")
+#             return []

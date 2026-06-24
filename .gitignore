@@ -1,6 +1,10 @@
 # .gitignore
 # Environments
+.venv/
+<<<<<<< Updated upstream
 venv/
+=======
+>>>>>>> Stashed changes
 env/
 .env
 

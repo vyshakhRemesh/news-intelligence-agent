@@ -1,33 +1,32 @@
-# import feedparser
-# from .rss_sources import RSS_FEEDS
+import feedparser
+from .rss_sources import RSS_FEEDS
 
-# class RSSClient:
+class RSSClient:
 
-#     def fetch_articles(self):
+    def fetch_articles(self):
 
-#         articles = []
+        articles = []
 
-#         for rss_url in RSS_FEEDS:
+        for source_name, rss_url in RSS_FEEDS.items():
 
-#             feed = feedparser.parse(rss_url)
+            feed = feedparser.parse(rss_url)
 
-#             for entry in feed.entries:
+            if feed.bozo:
+                print(f"Failed: {source_name}")
+                continue
 
-#                 articles.append({
-#                     "title": entry.get("title"),
-#                     "author": entry.get("author"),
-#                     "description": entry.get("summary"),
-#                     "content": entry.get("summary"),
-#                     "url": entry.get("link"),
-#                     "publishedAt": entry.get("published"),
-#                     "source": {
-#                         "name": feed.feed.get("title")
-#                     }
-#                 })
+            for entry in feed.entries:
 
-#         return articles
+                articles.append({
+                    "title": entry.get("title", ""),
+                    "author": entry.get("author", ""),
+                    "description": entry.get("summary", ""),
+                    "content": entry.get("summary", ""),
+                    "url": entry.get("link", ""),
+                    "publishedAt": entry.get("published", ""),
+                    "source": {
+                        "name": source_name
+                    }
+                })
 
-
-
-
-# cross check if the rss integration is correct
+        return articles

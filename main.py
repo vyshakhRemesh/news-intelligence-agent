@@ -62,11 +62,12 @@ def run_pipeline():
     aggregator = NewsAggregator()
 
     articles_data = aggregator.fetch_all()
+    logger.info(f"Aggregator returned {len(articles_data)} articles")
 
 
     # If the network request failed entirely, exit early to protect the database
     if not articles_data:
-        logger.warning("No data retrieved from NewsAPI. Terminating pipeline cycle.")
+        logger.warning("No data retrieved from any configured source. Terminating pipeline cycle.")
         return
 
     # 3. Establish a transactional database session context
