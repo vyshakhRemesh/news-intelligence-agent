@@ -5,7 +5,7 @@ from src.ingestion.gnews_client import GNewsClient
 from src.ingestion.currents_client import CurrentsClient
 # from src.ingestion.nytimes_client import NYTimesClient
 
-from src.ingestion.rss.rss_client import RSSClient
+# from src.ingestion.rss.rss_client import RSSClient
 
 logger=logging.getLogger(__name__)
 
