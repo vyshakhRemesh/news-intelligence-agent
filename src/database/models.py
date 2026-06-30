@@ -51,11 +51,6 @@ class RawArticles(Base):
     enrichment_summary: Mapped[str] = mapped_column(Text, nullable=True)
     enriched_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     
-    # Embeddings (for ChromaDB)
-    embedding: Mapped[list] = mapped_column(JSONB, nullable=True)
-    embedding_model: Mapped[str] = mapped_column(String(100), nullable=True)
-    embedding_dimension: Mapped[int] = mapped_column(Integer, nullable=True)
-    chromadb_id: Mapped[str] = mapped_column(String(100), nullable=True)
     
     # Status
     preprocessing_status: Mapped[str] = mapped_column(String(50), default='pending', nullable=True)
