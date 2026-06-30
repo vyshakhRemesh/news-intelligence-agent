@@ -41,4 +41,6 @@ class Config:
     if not NEWS_API_KEY:
         raise ValueError("CRITICAL ERROR: NEWS_API_KEY is missing from your .env file.")
     if not DATABASE_URL:
-        raise ValueError("CRITICAL ERROR: DATABASE_URL is missing from your .env file.")
+        raise ValueError(
+            "DATABASE_URL missing from .env"
+        )

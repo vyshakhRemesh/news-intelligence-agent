@@ -1,5 +1,6 @@
 # .gitignore
 # Environments
+.venv/
 venv/
 env/
 .env
@@ -7,7 +8,7 @@ env/
 # Python Caches
 __pycache__/
 *.pyc
-*.pyo
+*.pyo   
 
 # IDEs
 .vscode/
