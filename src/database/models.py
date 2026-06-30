@@ -21,7 +21,7 @@ class RawArticles(Base):
     content: Mapped[str] = mapped_column(Text, nullable=True)
     url: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False)
     published_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    # fetched_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     
     # ============================================
     # NEW FIELDS (Add these)

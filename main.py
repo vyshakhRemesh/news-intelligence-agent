@@ -73,33 +73,6 @@ class EnhancedPipeline:
         # Enrichment
         self.data_enricher = DataEnricher()
         
-        # Embeddings
-        # try:
-        #     self.embedding_generator = EmbeddingGenerator(model_name="all-MiniLM-L6-v2")
-        #     if self.embedding_generator.is_available():
-        #         logger.info(f"✅ Sentence Transformer initialized (dim: {self.embedding_generator.get_embedding_dimension()})")
-        #     else:
-        #         logger.warning("⚠️ Sentence Transformer not available")
-        #         self.embedding_generator = None
-        # except Exception as e:
-        #     logger.warning(f"⚠️ Could not initialize Sentence Transformer: {e}")
-        #     self.embedding_generator = None
-        
-        # ChromaDB
-        # try:
-        #     self.chromadb = ChromaDBClient(
-        #         collection_name="news_articles",
-        #         persist_directory="./chroma_db"
-        #     )
-        #     if self.chromadb.available:
-        #         stats = self.chromadb.get_collection_stats()
-        #         logger.info(f"✅ ChromaDB ready: {stats['vector_count']} vectors")
-        #     else:
-        #         logger.warning("⚠️ ChromaDB not available")
-        #         self.chromadb = None
-        # except Exception as e:
-        #     logger.warning(f"⚠️ Could not initialize ChromaDB: {e}")
-        #     self.chromadb = None
         
         # spaCy
         try:
@@ -113,10 +86,10 @@ class EnhancedPipeline:
         self.stats = {
             'total_fetched': 0,
             'stored': 0,
-            'chromadb_added': 0,
+            'skipped': 0,
             'errors': 0
         }
-
+    
     def run(self, category: str = "general", page_size: int = 100):
         """Run the enhanced pipeline"""
         logger.info("=" * 60)
@@ -149,10 +122,17 @@ class EnhancedPipeline:
                     continue
                 
                 # Check if exists
-                existing = self.db.query(RawArticles).filter(RawArticles.url == url).first()
-                if existing:
-                    continue
-                
+                try:
+                    existing = self.db.query(RawArticles).filter(RawArticles.url == url).first()
+                    if existing:
+                        self.stats['skipped'] += 1
+                        continue
+                except  Exception as e:
+                    self.db.rollback()
+                    existing = self.db.query(RawArticles).filter(RawArticles.url == url).first()
+                    if existing:
+                        self.stats['skipped'] += 1
+                        continue            
                 # Create article
                 article = RawArticles(
                     title=data.get('title', ''),
@@ -300,7 +280,7 @@ class EnhancedPipeline:
         logger.info("📊 Pipeline Statistics:")
         logger.info(f"  - Articles fetched: {self.stats['total_fetched']}")
         logger.info(f"  - Articles stored: {self.stats['stored']}")
-        logger.info(f"  - ChromaDB vectors: {self.stats['chromadb_added']}")
+        logger.info(f"  - Articles skipped (already exist): {self.stats.get('skipped', 0)}")
         logger.info(f"  - Errors: {self.stats['errors']}")
         
         # Database stats
@@ -317,16 +297,12 @@ class EnhancedPipeline:
     
     def close(self):
         """Close all connections"""
-        if self.chromadb:
-            try:
-                self.chromadb.close()
-            except:
-                pass
         if self.db:
             try:
                 self.db.close()
-            except:
-                pass
+                logger.info("Database connection closed")
+            except Exception as e:
+                logger.debug(f"Error closing database: {e}")
 
 
 # ============================================
