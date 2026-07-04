@@ -16,6 +16,7 @@ class EmbeddingGenerator:
         if not text:
             return None
 
+
         embedding = self.model.encode(
             text,
             convert_to_numpy=True

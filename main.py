@@ -15,8 +15,8 @@ from src.database.models import RawArticles
 from src.preprocessing.text_cleaner import TextCleaner
 from src.preprocessing.language_detector import LanguageDetector
 from src.enrichment.data_enricher import DataEnricher
-# from src.embedding.embedding_generator import EmbeddingGenerator
-# from src.vector_db.chromadb_client import ChromaDBClient
+from src.semantic_representation.embedding_generator import EmbeddingGenerator
+from src.vector_storage.chroma_manager import ChromaManager
 from spacy_entity_extractor import SpacyEntityExtractor
 from src.ingestion.aggregator import NewsAggregator
 
@@ -72,6 +72,9 @@ class EnhancedPipeline:
         
         # Enrichment
         self.data_enricher = DataEnricher()
+
+        self.embedding_generator = EmbeddingGenerator()
+        self.chroma_manager = ChromaManager()
         
         
         # spaCy
@@ -223,42 +226,36 @@ class EnhancedPipeline:
             article.sentence_count = cleaned['sentence_count']
             article.avg_word_length = cleaned['avg_word_length']
             
-            # 6. Generate embedding
-            # if self.embedding_generator and self.embedding_generator.is_available():
-            #     try:
-            #         embedding_data = self.embedding_generator.embed_article(
-            #             title=title,
-            #             description=description,
-            #             content=content
-            #         )
-            #         if embedding_data and embedding_data.get('embedding'):
-            #             article.embedding = embedding_data['embedding']
-            #             article.embedding_model = embedding_data.get('model', 'all-MiniLM-L6-v2')
-            #             article.embedding_dimension = embedding_data.get('dimension', 384)
-                        
-                        # Store in ChromaDB
-                #         if self.chromadb and self.chromadb.available:
-                #             metadata = {
-                #                 'source': data.get('source_name', 'Unknown'),
-                #                 'published_at': str(data.get('published_at', '')),
-                #                 'language': article.language,
-                #                 'primary_topic': article.primary_topic,
-                #                 'quality_score': article.quality_score,
-                #                 'source_type': data.get('source_type', 'api'),
-                #                 'title': title
-                #             }
-                #             chromadb_id = self.chromadb.add_article(
-                #                 article_id=article.id,
-                #                 title=title,
-                #                 content=content[:500] if content else title,
-                #                 embedding=article.embedding,
-                #                 metadata=metadata
-                #             )
-                #             if chromadb_id:
-                #                 article.chromadb_id = chromadb_id
-                #                 self.stats['chromadb_added'] += 1
-                # except Exception as e:
-                #     logger.error(f"Embedding generation failed: {e}")
+            # 6. Generate embedding and store in ChromaDB
+
+            try:
+                embedding = self.embedding_generator.generate_embedding(
+                    cleaned['cleaned_text']
+                )
+
+                if embedding:
+
+                    self.chroma_manager.store_article(
+                        article_id=article.id,
+                        text=cleaned['cleaned_text'],
+                        embedding=embedding,
+                        metadata={
+                            "title": title,
+                            "source": article.source_name,
+                            "language": article.language,
+                            "topic": article.primary_topic,
+                            "quality_score": article.quality_score
+                        }
+                    )
+
+                    logger.info(
+                        f"Embedding stored successfully for article {article.id}"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Embedding generation failed for article {article.id}: {e}"
+                )
             
             article.preprocessing_status = 'completed'
             article.processed_at = datetime.now(timezone.utc)
