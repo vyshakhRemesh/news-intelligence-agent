@@ -22,10 +22,7 @@ enricher = DataEnricher()
 extractor = SpacyEntityExtractor()
 
 # Get articles without language
-articles = db.query(RawArticles).filter(
-    (RawArticles.language.is_(None)) | 
-    (RawArticles.language == '')
-).all()
+articles = db.query(RawArticles).all()
 
 print(f"\n📊 Found {len(articles)} articles to update")
 

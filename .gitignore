@@ -15,3 +15,5 @@ __pycache__/
 
 # Local Database
 *.sqlite3
+
+pipeline.log
