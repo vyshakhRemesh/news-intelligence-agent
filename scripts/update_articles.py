@@ -7,7 +7,7 @@ from src.database.models import RawArticles
 from src.preprocessing.text_cleaner import TextCleaner
 from src.preprocessing.language_detector import LanguageDetector
 from src.enrichment.data_enricher import DataEnricher
-from spacy_entity_extractor import SpacyEntityExtractor
+from src.preprocessing.spacy_entity_extractor import SpacyEntityExtractor
 
 print("=" * 60)
 print("🔄 UPDATING EXISTING ARTICLES")
