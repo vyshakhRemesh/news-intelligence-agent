@@ -17,7 +17,7 @@ from src.preprocessing.language_detector import LanguageDetector
 from src.enrichment.data_enricher import DataEnricher
 from src.semantic_representation.embedding_generator import EmbeddingGenerator
 from src.vector_storage.chroma_manager import ChromaManager
-from spacy_entity_extractor import SpacyEntityExtractor
+from src.preprocessing.spacy_entity_extractor import SpacyEntityExtractor
 from src.ingestion.aggregator import NewsAggregator
 
 # ============================================
@@ -33,16 +33,24 @@ requests.packages.urllib3.disable_warnings()
 
 
 # Configure the global logging layout for our terminal
+import logging
+import os
+import sys
+
+# Create logs folder if it doesn't exist
+os.makedirs("logs", exist_ok=True)
+
+# Configure logging
 logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('pipeline.log', encoding='utf-8')
+        logging.FileHandler("logs/pipeline.log", encoding="utf-8")
     ]
 )
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 def parse_iso_date(date_str: str) -> datetime:
     """
     Helper function to safely parse ISO timestamp strings from the API
