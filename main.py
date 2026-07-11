@@ -19,6 +19,7 @@ from src.semantic_representation.embedding_generator import EmbeddingGenerator
 from src.vector_storage.chroma_manager import ChromaManager
 from src.preprocessing.spacy_entity_extractor import SpacyEntityExtractor
 from src.ingestion.aggregator import NewsAggregator
+from src.topic_modeling.topic_service import TopicService
 
 # ============================================
 # FIX SSL CERTIFICATE ISSUES
@@ -32,10 +33,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 requests.packages.urllib3.disable_warnings()
 
 
-# Configure the global logging layout for our terminal
-import logging
-import os
-import sys
+
+
 
 # Create logs folder if it doesn't exist
 os.makedirs("logs", exist_ok=True)
@@ -83,6 +82,8 @@ class EnhancedPipeline:
 
         self.embedding_generator = EmbeddingGenerator()
         self.chroma_manager = ChromaManager()
+
+        self.topic_service = TopicService()
         
         
         # spaCy
@@ -173,11 +174,31 @@ class EnhancedPipeline:
         except Exception as e:
             self.db.rollback()
             logger.error(f"❌ Database commit failed: {e}")
+        # ============================================
+        # BERTopic
+        # ============================================
+
+        try:
+
+            logger.info("=" * 60)
+            logger.info("Starting BERTopic Topic Modeling...")
+            logger.info("=" * 60)
+
+            self.topic_service.run()
+
+            logger.info("BERTopic completed successfully.")
+
+        except Exception as e:
+
+            logger.error(
+                f"BERTopic failed: {e}",
+                exc_info=True
+            )
         
-        # Show stats
-        self._show_stats()
-        logger.info("=" * 60)
-        logger.info("Pipeline execution completed")
+            # Show stats
+            self._show_stats()
+            logger.info("=" * 60)
+            logger.info("Pipeline execution completed")
     
     def _process_article(self, article: RawArticles, data: Dict):
         """Process a single article"""

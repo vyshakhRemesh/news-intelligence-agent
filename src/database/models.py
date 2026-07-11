@@ -56,6 +56,11 @@ class RawArticles(Base):
     preprocessing_status: Mapped[str] = mapped_column(String(50), default='pending', nullable=True)
     processed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     source_type: Mapped[str] = mapped_column(String(50), default='api', nullable=True)
+
+    # Topic Modeling
+    topic_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    primary_topic: Mapped[str] = mapped_column(String(50), nullable=True)
+    topics: Mapped[list] = mapped_column(JSONB, default=[], nullable=True)
     
     def __repr__(self) -> str:
         return f"<RawArticle(id={self.id}, title={self.title[:30]}..., source={self.source_name})>"
