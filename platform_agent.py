@@ -9,8 +9,12 @@ from langchain_groq import ChatGroq
 load_dotenv()
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from src.database.connection import SessionLocal
-from src.database.models import RawArticles
+from src.database.connection import SessionLocal, engine, Base
+from src.database.models import RawArticles,DailyBriefing
+
+
+# Ensure tables are created when the agent boots
+Base.metadata.create_all(bind=engine)
 
 # --- 1. Define the Shared Memory (State) ---
 class PlatformState(TypedDict):
@@ -100,9 +104,25 @@ def brief_gen_node(state: PlatformState):
 
 
 def delivery_node(state: PlatformState):
-    """Simulates saving the daily briefing to PostgreSQL or emailing the user."""
+    """Saves the daily briefing to the PostgreSQL DailyBriefings table."""
     print("🚀 DELIVERY: Finalizing briefing delivery (Saving to DailyBriefings table)...")
-    # In the full app, you would save state["final_briefing"] to a DailyBriefings table here.
+    
+    db = SessionLocal()
+    try:
+        new_briefing = DailyBriefing(
+            user_id=state.get("user_id", "unknown_user"),
+            topic_preferences=",".join(state.get("user_preferences", [])),
+            content=state.get("final_briefing", "")
+        )
+        db.add(new_briefing)
+        db.commit()
+        print("   -> Briefing successfully saved to PostgreSQL.")
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Database Insertion Error: {e}")
+    finally:
+        db.close()
+        
     return state
 
 
