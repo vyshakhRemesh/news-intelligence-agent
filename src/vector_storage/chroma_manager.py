@@ -58,6 +58,17 @@ class ChromaManager:
         )
 
         return results
+            # ----------------- Helper method to search articles as text ----------------
+    def search_by_text(self, query_text: str, top_k: int = 3, embedder=None):
+        """
+        Helper method to generate an embedding from text and query articles.
+        """
+        if embedder is None:
+            from src.semantic_representation.embedding_generator import EmbeddingGenerator
+            embedder = EmbeddingGenerator()
+            
+        embedding = embedder.generate_embedding(query_text)
+        return self.search_articles(query_embedding=embedding, top_k=top_k)
 
     # ---------------- Count Articles ----------------
     def count_articles(self):

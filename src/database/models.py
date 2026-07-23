@@ -1,8 +1,10 @@
 from datetime import datetime
 from sqlalchemy import String, Text, DateTime, Float, Boolean, JSON ,Integer ,func
+from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 from src.config import Config
+
 
 class Base(DeclarativeBase):
     pass
@@ -82,3 +84,12 @@ class RawArticles(Base):
             'entities': self.entities,
             'enrichment_summary': self.enrichment_summary
         }
+
+class DailyBriefing(Base):
+    __tablename__ = 'daily_briefings'
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(100), index=True, nullable=True)
+    topic_preferences: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Stored as comma-separated string
+    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now()) # pylint: disable=not-callable
