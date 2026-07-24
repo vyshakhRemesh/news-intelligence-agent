@@ -1,16 +1,68 @@
-# .gitignore
-# Environments
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==========================
+# Virtual Environment
+# ==========================
+.venv/
 venv/
 env/
+
+# ==========================
+# Environment Variables
+# ==========================
 .env
 
-# Python Caches
-__pycache__/
-*.pyc
-*.pyo
+# ==========================
+# Logs
+# ==========================
+*.log
+logs/
+pipeline.log
 
-# IDEs
+# ==========================
+# ChromaDB (Generated Vector Store)
+# ==========================
+chroma_db/
+
+# ==========================
+# Python Cache
+# ==========================
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ==========================
+# Jupyter
+# ==========================
+.ipynb_checkpoints/
+
+# ==========================
+# IDE
+# ==========================
 .vscode/
+.idea/
 
-# Local Database
-*.sqlite3
+# ==========================
+# OS Files
+# ==========================
+.DS_Store
+Thumbs.db
+
+# ==========================
+# Build
+# ==========================
+build/
+dist/
+*.egg-info/
+
+# ==========================
+# Temporary Files
+# ==========================
+*.tmp
+*.temp
