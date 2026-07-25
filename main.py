@@ -20,6 +20,7 @@ from src.vector_storage.chroma_manager import ChromaManager
 from src.preprocessing.spacy_entity_extractor import SpacyEntityExtractor
 from src.ingestion.aggregator import NewsAggregator
 from src.topic_modeling.topic_service import TopicService
+from src.recommendation.recommendation_service import RecommendationService
 
 # ============================================
 # FIX SSL CERTIFICATE ISSUES
@@ -188,6 +189,10 @@ class EnhancedPipeline:
 
             logger.info("BERTopic completed successfully.")
 
+            self.test_recommendation()
+
+            logger.info("Pipeline completed successfully!")
+
         except Exception as e:
 
             logger.error(
@@ -320,6 +325,67 @@ class EnhancedPipeline:
                 logger.info(f"  - Processed: {processed}")
             except Exception as e:
                 logger.debug(f"Could not get DB stats: {e}")
+
+    def test_recommendation(self):
+        """
+        Temporary testing function.
+        Uses real articles from PostgreSQL and runs the
+        recommendation engine.
+        """
+        logger.info("=" * 60)
+        logger.info("TESTING RECOMMENDATION ENGINE")
+        logger.info("=" * 60)
+
+        articles = (
+            self.db.query(RawArticles)
+            .filter(RawArticles.preprocessing_status == "completed")
+            .limit(10)
+            .all()
+        )
+
+        if not articles:
+            logger.warning("No processed articles found.")
+            return
+
+        user = {
+            "preferred_topics": [
+                "technology",
+                "artificial intelligence",
+                "science"
+            ],
+            "preferred_sources": [
+                "Reuters",
+                "BBC News",
+                "Nature"
+            ]
+        }
+
+        service = RecommendationService()
+
+        ranked = service.recommend(
+            articles,
+            user
+        )
+
+        logger.info("")
+        logger.info("TOP RECOMMENDED ARTICLES")
+        logger.info("-" * 60)
+
+        for i, item in enumerate(ranked, start=1):
+
+            article = item["article"]
+            scores = item["scores"]
+
+            logger.info(f"{i}. {article.title}")
+            logger.info(f"   Source : {article.source_name}")
+            logger.info(f"   Topic  : {article.primary_topic}")
+            logger.info(f"   Recommendation : {scores['recommendation_score']}")
+            logger.info(f"   Trust          : {scores['trust_score']}")
+            logger.info(f"   Confidence     : {scores['confidence_score']}")
+            logger.info(f"   Freshness      : {scores['freshness_score']}")
+            logger.info(f"   Interest       : {scores['interest_score']}")
+            logger.info(f"   Source Pref    : {scores['source_preference_score']}")
+            logger.info("-" * 60)
     
     def close(self):
         """Close all connections"""
