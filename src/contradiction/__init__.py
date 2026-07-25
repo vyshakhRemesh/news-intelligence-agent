@@ -1,0 +1,3 @@
+"""
+Contradiction Detection Module
+"""

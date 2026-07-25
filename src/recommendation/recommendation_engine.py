@@ -11,7 +11,7 @@ from src.recommendation.trust_score import TrustScore
 from src.recommendation.freshness_score import FreshnessScore
 from src.recommendation.user_interest import UserInterest
 from src.recommendation.source_preference import SourcePreference
-from src.config_recomm.recommendation_config import (
+from src.config.recommendation_config import (
     TRUST_WEIGHT,
     CONFIDENCE_WEIGHT,
     FRESHNESS_WEIGHT,

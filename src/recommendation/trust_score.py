@@ -7,7 +7,7 @@ Author: Recommendation Team
 """
 
 
-from src.config_recomm.trust_sources import (
+from src.config.trust_sources import (
     SOURCE_TRUST,
     DEFAULT_TRUST_SCORE
     )
