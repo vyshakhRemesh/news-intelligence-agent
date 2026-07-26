@@ -14,7 +14,7 @@ from langchain_groq import ChatGroq
 logger = logging.getLogger(__name__)
 
 class NewsGenerationEngine:
-    def __init__(self, llm_model=None):
+    def __init__(self, db = None,llm_model=None):
         """
         Initializes the RAG Engine and constructs the LCEL pipeline.
         """
@@ -24,7 +24,9 @@ class NewsGenerationEngine:
 
         self.llm = llm_model or ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
         self.output_parser = StrOutputParser()
-        self.contradiction_service = ContradictionService()
+        self.db = db
+        self.contradiction_service = ContradictionService(db=db)
+
         # Define the strict instructions for the LLM
         self.prompt_template = PromptTemplate(
             template="""You are a highly analytical News Intelligence Agent. 
@@ -100,9 +102,12 @@ Briefing:""",
             else 0
         )
 
-        contradiction_result = self.contradiction_service.analyse_articles(
-            retrieved_articles,
-            threshold=contradiction_threshold
+        contradiction_result = (
+            self.contradiction_service.analyse_articles(
+                articles=retrieved_articles,
+                threshold=contradiction_threshold,
+                save_results=self.db is not None,
+            )
         )
 
         logger.info(

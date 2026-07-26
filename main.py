@@ -427,11 +427,19 @@ class EnhancedPipeline:
             ]
         }
 
-        service = RecommendationService()
+        service = RecommendationService(
+            db=self.db
+        )
 
         ranked = service.recommend(
-            articles,
-            user
+            articles=articles,
+            user=user,
+            save_results=True,
+        )
+
+        logger.info(
+            f"Saved recommendation scores "
+            f"for {len(ranked)} articles."
         )
 
         logger.info("")
@@ -490,8 +498,17 @@ class EnhancedPipeline:
         ):
             metadata = metadata or {}
 
+            try:
+                postgres_article_id = int(article_id)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Skipping invalid article ID from ChromaDB: %s",
+                    article_id,
+                )
+                continue
+
             retrieved_articles.append({
-                "article_id": article_id,
+                "article_id": postgres_article_id,
                 "title": metadata.get("title", "Untitled"),
                 "source": metadata.get("source", "Unknown"),
                 "topic": metadata.get("topic", "general"),
@@ -519,7 +536,7 @@ class EnhancedPipeline:
                 article["source"],
             )
 
-        rag_engine = NewsGenerationEngine()
+        rag_engine = NewsGenerationEngine(db=self.db)
 
         result = rag_engine.generate_briefing(
             question=question,
