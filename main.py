@@ -6,7 +6,8 @@ import json
 import urllib3
 import requests
 import logging
-from datetime import datetime,timezone
+import hashlib
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from src.ingestion.newsapi_client import NewsAPIClient
@@ -34,10 +35,6 @@ os.environ['PGSSLMODE'] = 'disable'
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 requests.packages.urllib3.disable_warnings()
 
-
-
-
-
 # Create logs folder if it doesn't exist
 os.makedirs("logs", exist_ok=True)
 
@@ -52,19 +49,44 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-def parse_iso_date(date_str: str) -> datetime:
+
+
+def parse_iso_date(date_str):
     """
-    Helper function to safely parse ISO timestamp strings from the API
-    into Python datetime objects. Falls back to current time if parsing fails.
+    Parse various date formats from APIs and RSS feeds.
+    Handles ISO 8601, RFC 822 (RSS), and datetime objects.
     """
     if not date_str:
         return datetime.utcnow()
-    try:
-        # NewsAPI returns timestamps formatted as "2026-06-06T03:52:00Z"
-        # We strip the trailing 'Z' to make it compatible with standard parsing
-        return datetime.strptime(date_str.replace("Z", ""), "%Y-%m-%dT%H:%M:%S")
-    except ValueError:
-        return datetime.utcnow()
+    
+    # Already a datetime object
+    if isinstance(date_str, datetime):
+        return date_str
+    
+    # Clean string
+    date_str = str(date_str).strip()
+    
+    formats = [
+        "%Y-%m-%dT%H:%M:%S",           # NewsAPI: 2026-06-06T03:52:00 (Z stripped)
+        "%Y-%m-%dT%H:%M:%S%z",          # ISO with timezone: +00:00
+        "%Y-%m-%dT%H:%M:%SZ",           # ISO with Z suffix
+        "%a, %d %b %Y %H:%M:%S %z",     # RSS RFC 822: Mon, 06 Jun 2026 03:52:00 +0000
+        "%a, %d %b %Y %H:%M:%S %Z",     # RSS with named timezone
+    ]
+    
+    # Try stripping Z and parsing
+    cleaned = date_str.replace("Z", "+00:00")
+    
+    for fmt in formats:
+        try:
+            return datetime.strptime(cleaned, fmt)
+        except ValueError:
+            continue
+    
+    # Fallback
+    logger.warning(f"Could not parse date: {date_str}, using current time")
+    return datetime.utcnow()
+
 
 class EnhancedPipeline:
     def __init__(self):
@@ -72,7 +94,7 @@ class EnhancedPipeline:
         # Database session
         self.db = None
         
-        # Aggregator (multi-source)
+        # Aggregator (multi-source with circuit breakers)
         self.aggregator = NewsAggregator()
         
         # Preprocessing
@@ -87,13 +109,12 @@ class EnhancedPipeline:
 
         self.topic_service = TopicService()
         
-        
         # spaCy
         try:
             self.entity_extractor = SpacyEntityExtractor(model_name="en_core_web_sm")
-            logger.info("✅ spaCy Entity Extractor initialized")
+            logger.info("spaCy Entity Extractor initialized")
         except Exception as e:
-            logger.warning(f"⚠️ spaCy not available: {e}")
+            logger.warning(f"spaCy not available: {e}")
             self.entity_extractor = SpacyEntityExtractor()
         
         # Stats
@@ -107,25 +128,25 @@ class EnhancedPipeline:
     def run(self, category: str = "general", page_size: int = 100):
         """Run the enhanced pipeline"""
         logger.info("=" * 60)
-        logger.info("Starting Enhanced News Intelligence Pipeline (tejas branch)")
+        logger.info("Starting Enhanced News Intelligence Pipeline")
         logger.info(f"Category: {category}, Page Size: {page_size}")
         logger.info("=" * 60)
         
         # Initialize database
         init_db()
         self.db = SessionLocal()
-        logger.info("✅ Database ready")
+        logger.info("Database ready")
         
-        # Fetch articles from all sources
+        # Fetch articles from all sources (NO deduplication at ingestion)
         try:
             articles_data = self.aggregator.fetch_all()
             if not articles_data:
                 logger.warning("No articles fetched")
                 return
             self.stats['total_fetched'] = len(articles_data)
-            logger.info(f"📊 Total articles fetched: {len(articles_data)}")
+            logger.info(f"Total articles fetched: {len(articles_data)}")
         except Exception as e:
-            logger.error(f"❌ Error fetching articles: {e}")
+            logger.error(f"Error fetching articles: {e}")
             return
         
         # Process each article
@@ -135,59 +156,35 @@ class EnhancedPipeline:
                 if not url:
                     continue
                 
-                # Check if exists
-                try:
-                    existing = self.db.query(RawArticles).filter(RawArticles.url == url).first()
-                    if existing:
-                        self.stats['skipped'] += 1
-                        continue
-                except  Exception as e:
-                    self.db.rollback()
-                    existing = self.db.query(RawArticles).filter(RawArticles.url == url).first()
-                    if existing:
-                        self.stats['skipped'] += 1
-                        continue            
-                # Create article
-                article = RawArticles(
-                    title=data.get('title', ''),
-                    author=data.get('author', ''),
-                    source_name=data.get('source_name', 'Unknown'),
-                    description=data.get('description', ''),
-                    content=data.get('content', ''),
-                    url=url,
-                    published_at=data.get('published_at', datetime.now(timezone.utc)),
-                    source_type=data.get('source_type', 'api')
-                )
-                self.db.add(article)
-                self.db.flush()
+                # Smart store: skip only true duplicates (same URL + same source)
+                # Keep duplicates from different sources for contradiction detection
+                article = self._store_article(data)
+                if not article:
+                    continue  # True duplicate, skipped
                 
-                # Process article
+                # Process article (NLP, enrichment, embedding)
                 self._process_article(article, data)
-                self.stats['stored'] += 1
                 
             except Exception as e:
                 logger.error(f"Error processing article: {e}")
                 self.stats['errors'] += 1
         
-        # Commit
+        # Commit all changes
         try:
             self.db.commit()
-            logger.info(f"✅ Stored {self.stats['stored']} new articles")
+            logger.info(f"Stored {self.stats['stored']} new articles")
         except Exception as e:
             self.db.rollback()
-            logger.error(f"❌ Database commit failed: {e}")
+            logger.error(f"Database commit failed: {e}")
+        
         # ============================================
-        # BERTopic
+        # BERTopic Topic Modeling
         # ============================================
-
         try:
-
             logger.info("=" * 60)
             logger.info("Starting BERTopic Topic Modeling...")
             logger.info("=" * 60)
-
             self.topic_service.run()
-
             logger.info("BERTopic completed successfully.")
 
             self.test_recommendation()
@@ -196,19 +193,84 @@ class EnhancedPipeline:
             logger.info("Pipeline completed successfully!")
 
         except Exception as e:
-
-            logger.error(
-                f"BERTopic failed: {e}",
-                exc_info=True
-            )
+            logger.error(f"BERTopic failed: {e}", exc_info=True)
         
-            # Show stats
-            self._show_stats()
-            logger.info("=" * 60)
-            logger.info("Pipeline execution completed")
+        # Show stats
+        self._show_stats()
+        logger.info("=" * 60)
+        logger.info("Pipeline execution completed")
+    
+    def _store_article(self, data: Dict) -> Optional[RawArticles]:
+        """
+        Store article with smart duplicate handling.
+        
+        Rules:
+        - Same URL + same source = TRUE DUPLICATE → skip
+        - Same URL + different source = DIFFERENT PERSPECTIVE → keep, mark as duplicate
+        - New URL → keep normally
+        
+        This preserves multiple sources for contradiction detection.
+        """
+        url = data.get('url')
+        if not url:
+            return None
+        
+        source_name = data.get('source_name', 'Unknown')
+        
+        # Rule 1: Same URL + same source = true duplicate, skip
+        existing_same_source = self.db.query(RawArticles).filter(
+            RawArticles.url == url,
+            RawArticles.source_name == source_name
+        ).first()
+        
+        if existing_same_source:
+            self.stats['skipped'] += 1
+            logger.debug(f"Skipped true duplicate: {url} from {source_name}")
+            return None
+        
+        # Rule 2: Same URL from different source = keep for contradiction detection
+        existing_other_source = self.db.query(RawArticles).filter(
+            RawArticles.url == url
+        ).first()
+        
+        # Parse published_at (handle string or datetime)
+        published_at = data.get('published_at', datetime.now(timezone.utc))
+        if isinstance(published_at, str):
+            published_at = parse_iso_date(published_at)
+        
+        # Generate content hash for event grouping (used by contradiction detection later)
+        content = data.get('content', '') or data.get('description', '')
+        content_hash = hashlib.md5(content.encode()).hexdigest() if content else None
+        
+        # Normalize source_type to uppercase
+        source_type = str(data.get('source_type', 'API')).upper()
+        
+        # Create article
+        article = RawArticles(
+            title=data.get('title', ''),
+            author=data.get('author', ''),
+            source_name=source_name,
+            source_type=source_type,
+            description=data.get('description', ''),
+            content=data.get('content', ''),
+            url=url,
+            published_at=published_at,
+            content_hash=content_hash,
+            is_duplicate=existing_other_source is not None,
+            duplicate_of_id=existing_other_source.id if existing_other_source else None
+        )
+        
+        self.db.add(article)
+        self.db.flush()
+        self.stats['stored'] += 1
+        
+        if existing_other_source:
+            logger.info(f"Stored duplicate perspective: {url} from {source_name} (original: {existing_other_source.source_name})")
+        
+        return article
     
     def _process_article(self, article: RawArticles, data: Dict):
-        """Process a single article"""
+        """Process a single article with NLP pipeline"""
         try:
             title = data.get('title', '')
             description = data.get('description', '')
@@ -263,14 +325,12 @@ class EnhancedPipeline:
             article.avg_word_length = cleaned['avg_word_length']
             
             # 6. Generate embedding and store in ChromaDB
-
             try:
                 embedding = self.embedding_generator.generate_embedding(
                     cleaned['cleaned_text']
                 )
 
                 if embedding:
-
                     self.chroma_manager.store_article(
                         article_id=article.id,
                         text=cleaned['cleaned_text'],
@@ -283,21 +343,15 @@ class EnhancedPipeline:
                             "quality_score": article.quality_score
                         }
                     )
-
-                    logger.info(
-                        f"Embedding stored successfully for article {article.id}"
-                    )
-
+                    logger.info(f"Embedding stored for article {article.id}")
             except Exception as e:
-                logger.error(
-                    f"Embedding generation failed for article {article.id}: {e}"
-                )
+                logger.error(f"Embedding failed for article {article.id}: {e}")
             
             article.preprocessing_status = 'completed'
             article.processed_at = datetime.now(timezone.utc)
             
             # Log
-            logger.info(f"✅ Article {article.id}: {title[:50]}...")
+            logger.info(f"Article {article.id}: {title[:50]}...")
             if article.entities:
                 logger.info(f"   Entities: {len(article.entities)} found")
             if article.enrichment_summary:
@@ -307,13 +361,12 @@ class EnhancedPipeline:
             logger.error(f"Error processing article {article.id}: {e}")
             article.preprocessing_status = 'failed'
     
-
     def _show_stats(self):
         """Display pipeline statistics"""
-        logger.info("📊 Pipeline Statistics:")
+        logger.info("Pipeline Statistics:")
         logger.info(f"  - Articles fetched: {self.stats['total_fetched']}")
         logger.info(f"  - Articles stored: {self.stats['stored']}")
-        logger.info(f"  - Articles skipped (already exist): {self.stats.get('skipped', 0)}")
+        logger.info(f"  - Articles skipped (true duplicates): {self.stats.get('skipped', 0)}")
         logger.info(f"  - Errors: {self.stats['errors']}")
         
         # Database stats
@@ -323,8 +376,12 @@ class EnhancedPipeline:
                 processed = self.db.query(RawArticles).filter(
                     RawArticles.preprocessing_status == 'completed'
                 ).count()
+                duplicates = self.db.query(RawArticles).filter(
+                    RawArticles.is_duplicate == True
+                ).count()
                 logger.info(f"  - Total articles in DB: {total}")
                 logger.info(f"  - Processed: {processed}")
+                logger.info(f"  - Duplicate perspectives kept: {duplicates}")
             except Exception as e:
                 logger.debug(f"Could not get DB stats: {e}")
 
@@ -485,7 +542,7 @@ def run_pipeline():
     
     if missing_keys:
         logger.warning("=" * 60)
-        logger.warning("⚠️  Missing API Keys:")
+        logger.warning("Missing API Keys:")
         for key in missing_keys:
             logger.warning(f"   - {key}")
         logger.warning("=" * 60)
@@ -497,9 +554,9 @@ def run_pipeline():
     try:
         pipeline.run()
     except KeyboardInterrupt:
-        logger.info("\n⏹️ Pipeline interrupted by user")
+        logger.info("\nPipeline interrupted by user")
     except Exception as e:
-        logger.error(f"❌ Pipeline failed: {e}", exc_info=True)
+        logger.error(f"Pipeline failed: {e}", exc_info=True)
     finally:
         pipeline.close()
 

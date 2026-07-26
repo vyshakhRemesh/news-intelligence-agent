@@ -23,6 +23,10 @@ class RawArticles(Base):
     content: Mapped[str] = mapped_column(Text, nullable=True)
     url: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False)
     published_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    # Add these fields to RawArticles class
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    is_duplicate: Mapped[bool] = mapped_column(Boolean, default=False)
+    duplicate_of_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # fetched_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
     
     # ============================================
