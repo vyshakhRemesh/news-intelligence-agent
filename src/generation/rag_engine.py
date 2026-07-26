@@ -1,6 +1,8 @@
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-
+from src.contradiction.contradiction_service import ContradictionService
+from src.recommendation.trust_score import TrustScore
+import logging
 # We will use ChatOpenAI as a placeholder, but you can swap this for Anthropic, Llama 3, etc.
 # from langchain_openai import ChatOpenAI  //for openai
 
@@ -8,6 +10,8 @@ from langchain_core.output_parsers import StrOutputParser
 
 # --- 1. Import Groq instead of OpenAI ---
 from langchain_groq import ChatGroq
+
+logger = logging.getLogger(__name__)
 
 class NewsGenerationEngine:
     def __init__(self, llm_model=None):
@@ -20,7 +24,7 @@ class NewsGenerationEngine:
 
         self.llm = llm_model or ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
         self.output_parser = StrOutputParser()
-        
+        self.contradiction_service = ContradictionService()
         # Define the strict instructions for the LLM
         self.prompt_template = PromptTemplate(
             template="""You are a highly analytical News Intelligence Agent. 
@@ -46,41 +50,129 @@ Briefing:""",
         self.chain = self.prompt_template | self.llm | self.output_parser
 
 
-    def generate_briefing(self, question: str, retrieved_articles: list, trust_score: int):
+    def generate_briefing(
+    self,
+    question: str,
+    retrieved_articles: list,
+    contradiction_threshold: float = 0.70,
+    ):
         """
-        Takes the user's question, the articles from Ammu's ChromaDB, and Sudha's trust score,
-        formats them, and runs the LLM chain.
+        Formats retrieved articles, evaluates source credibility,
+        detects contradictions, and generates a briefing.
         """
-        # 1. Format the context text
-        # Assuming Ammu's database returns a list of dictionaries containing 'title' and 'text'
-        # Format the retrieved articles into a clean text block
+
         formatted_docs = []
+
         for idx, doc in enumerate(retrieved_articles, 1):
             if isinstance(doc, str):
                 title = f"Article {idx}"
                 content = doc
+
             elif isinstance(doc, dict):
                 title = doc.get("title", f"Article {idx}")
-                content = doc.get("text", doc.get("content", str(doc)))
+                content = doc.get(
+                    "text",
+                    doc.get("content", str(doc)),
+                )
+
             else:
                 title = f"Article {idx}"
                 content = str(doc)
-                
-            formatted_docs.append(f"--- {title} ---\n{content}")
-            
-        context_text = "\n\n".join(formatted_docs) if formatted_docs else "No relevant articles found."
-        
-        # 2. Mocking Sudha's Trust Engine Logic
-        # If the score is low, we generate a warning string. If high, we leave it blank.
-        warning = ""
-        if trust_score < 5:
-            warning = "WARNING: The following briefing is based on sources with highly contradictory reports."
-            
-        # 3. Invoke the LCEL Chain
+
+            formatted_docs.append(
+                f"--- {title} ---\n{content}"
+            )
+
+        context_text = (
+            "\n\n".join(formatted_docs)
+            if formatted_docs
+            else "No relevant articles found."
+        )
+
+        trust_scores = [
+            TrustScore.calculate(article)
+            for article in retrieved_articles
+        ]
+
+        average_trust_score = (
+            sum(trust_scores) / len(trust_scores)
+            if trust_scores
+            else 0
+        )
+
+        contradiction_result = self.contradiction_service.analyse_articles(
+            retrieved_articles,
+            threshold=contradiction_threshold
+        )
+
+        logger.info(
+            "Contradiction count: %s",
+            contradiction_result.get("contradiction_count", 0)
+        )
+
+        contradictions = contradiction_result.get(
+            "contradictions",
+            []
+        )
+
+        if not contradictions:
+            logger.info(
+                "No contradictions exceeded threshold %.2f",
+                contradiction_threshold
+            )
+        else:
+            for index, contradiction in enumerate(
+                contradictions,
+                start=1
+            ):
+                logger.info("Contradiction %d:", index)
+
+                logger.info(
+                    "   Article 1: %s",
+                    contradiction.get(
+                        "article_1_title",
+                        "Untitled"
+                    )
+                )
+
+                logger.info(
+                    "   Article 2: %s",
+                    contradiction.get(
+                        "article_2_title",
+                        "Untitled"
+                    )
+                )
+
+                logger.info(
+                    "   Contradiction score: %.4f",
+                    contradiction.get(
+                        "contradiction_score",
+                        0.0
+                    )
+                )
+
+        warnings = []
+
+        if average_trust_score < 5:
+            warnings.append(
+                "WARNING: Some retrieved articles are from "
+                "sources with low credibility scores."
+            )
+
+        if contradiction_result["contradiction_count"] > 0:
+            warnings.append(
+                "WARNING: The retrieved articles contain "
+                f"{contradiction_result['contradiction_count']} "
+                "potentially contradictory report(s)."
+            )
+
+        warning = "\n".join(warnings)
+
         response = self.chain.invoke({
             "context": context_text,
             "question": question,
-            "trust_score_warning": warning
+            "trust_score_warning": warning,
         })
-        
+
         return response
+                

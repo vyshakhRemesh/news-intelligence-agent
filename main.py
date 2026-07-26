@@ -21,6 +21,7 @@ from src.preprocessing.spacy_entity_extractor import SpacyEntityExtractor
 from src.ingestion.aggregator import NewsAggregator
 from src.topic_modeling.topic_service import TopicService
 from src.recommendation.recommendation_service import RecommendationService
+from src.generation.rag_engine import NewsGenerationEngine
 
 # ============================================
 # FIX SSL CERTIFICATE ISSUES
@@ -190,6 +191,7 @@ class EnhancedPipeline:
             logger.info("BERTopic completed successfully.")
 
             self.test_recommendation()
+            self.test_rag_pipeline()
 
             logger.info("Pipeline completed successfully!")
 
@@ -386,6 +388,75 @@ class EnhancedPipeline:
             logger.info(f"   Interest       : {scores['interest_score']}")
             logger.info(f"   Source Pref    : {scores['source_preference_score']}")
             logger.info("-" * 60)
+
+    def test_rag_pipeline(self):
+        """
+        Temporary end-to-end test for:
+        ChromaDB retrieval -> trust score -> contradiction detection
+        -> RAG briefing generation.
+        """
+
+        logger.info("=" * 60)
+        logger.info("TESTING RAG AND CONTRADICTION PIPELINE")
+        logger.info("=" * 60)
+
+        question = (
+            "What are the latest important developments "
+            "in technology and artificial intelligence?"
+        )
+
+        # Retrieve relevant articles from ChromaDB
+        search_results = self.chroma_manager.search_by_text(
+            query_text=question,
+            top_k=5,
+            embedder=self.embedding_generator,
+        )
+
+        documents = search_results.get("documents", [[]])[0] or []
+        metadatas = search_results.get("metadatas", [[]])[0] or []
+        ids = search_results.get("ids", [[]])[0] or []
+
+        retrieved_articles = []
+
+        for article_id, document, metadata in zip(
+            ids,
+            documents,
+            metadatas,
+        ):
+            metadata = metadata or {}
+
+            retrieved_articles.append({
+                "article_id": article_id,
+                "title": metadata.get("title", "Untitled"),
+                "source": metadata.get("source", "Unknown"),
+                "topic": metadata.get("topic", "general"),
+                "quality_score": metadata.get("quality_score", 0),
+                "text": document,
+            })
+
+        if not retrieved_articles:
+            logger.warning(
+                "No relevant articles were retrieved for RAG testing."
+            )
+            return
+
+        logger.info(
+            f"Retrieved {len(retrieved_articles)} articles for RAG."
+        )
+
+        rag_engine = NewsGenerationEngine()
+
+        result = rag_engine.generate_briefing(
+            question=question,
+            retrieved_articles=retrieved_articles,
+            contradiction_threshold=0.70,
+        )
+
+        logger.info("")
+        logger.info("GENERATED NEWS BRIEFING")
+        logger.info("-" * 60)
+        logger.info(result)
+        logger.info("-" * 60)
     
     def close(self):
         """Close all connections"""
