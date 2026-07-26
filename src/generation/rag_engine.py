@@ -106,6 +106,15 @@ Briefing:""",
         )
 
         logger.info(
+            "Contradiction result: %s",
+            contradiction_result,
+        )
+
+        logger.info(
+            "Contradiction count: %s",
+            contradiction_result.get("contradiction_count", 0),
+        )
+        logger.info(
             "Contradiction count: %s",
             contradiction_result.get("contradiction_count", 0)
         )

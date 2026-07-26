@@ -152,31 +152,38 @@ class EnhancedPipeline:
         # Process each article
         for data in articles_data:
             try:
-                url = data.get('url')
+                url = data.get("url")
+
                 if not url:
                     continue
-                
-                # Smart store: skip only true duplicates (same URL + same source)
-                # Keep duplicates from different sources for contradiction detection
+
                 article = self._store_article(data)
+
                 if not article:
-                    continue  # True duplicate, skipped
-                
-                # Process article (NLP, enrichment, embedding)
+                    continue
+
                 self._process_article(article, data)
-                
+
+                # Commit each successfully processed article
+                self.db.commit()
+
             except Exception as e:
-                logger.error(f"Error processing article: {e}")
-                self.stats['errors'] += 1
-        
+                # Clear the failed PostgreSQL transaction
+                self.db.rollback()
+
+                logger.error(
+                    "Error processing article: %s",
+                    e,
+                    exc_info=True,
+                )
+
+                self.stats["errors"] += 1
+                
         # Commit all changes
-        try:
-            self.db.commit()
-            logger.info(f"Stored {self.stats['stored']} new articles")
-        except Exception as e:
-            self.db.rollback()
-            logger.error(f"Database commit failed: {e}")
-        
+        logger.info(
+            "Successfully processed and committed %s articles",
+            self.stats["stored"],
+        )
         # ============================================
         # BERTopic Topic Modeling
         # ============================================
@@ -262,6 +269,7 @@ class EnhancedPipeline:
         
         self.db.add(article)
         self.db.flush()
+        self.db.commit()
         self.stats['stored'] += 1
         
         if existing_other_source:
@@ -501,12 +509,22 @@ class EnhancedPipeline:
             f"Retrieved {len(retrieved_articles)} articles for RAG."
         )
 
+        logger.info("ARTICLES SENT FOR CONTRADICTION CHECK")
+
+        for index, article in enumerate(retrieved_articles, start=1):
+            logger.info(
+                "%d. %s | Source: %s",
+                index,
+                article["title"],
+                article["source"],
+            )
+
         rag_engine = NewsGenerationEngine()
 
         result = rag_engine.generate_briefing(
             question=question,
             retrieved_articles=retrieved_articles,
-            contradiction_threshold=0.70,
+            contradiction_threshold=0.50,
         )
 
         logger.info("")

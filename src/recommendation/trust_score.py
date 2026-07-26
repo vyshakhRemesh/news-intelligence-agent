@@ -16,11 +16,6 @@ class TrustScore:
 
     @staticmethod
     def calculate(article):
-        """
-        Return the configured credibility score for one article.
-
-        Supports both article objects and dictionaries.
-        """
 
         if isinstance(article, dict):
             source = (
@@ -28,15 +23,17 @@ class TrustScore:
                 or article.get("source")
             )
         else:
-            source = getattr(article, "source_name", None)
-
-            if source is None:
-                source = getattr(article, "source", None)
+            source = (
+                getattr(article, "source_name", None)
+                or getattr(article, "source", None)
+            )
 
         if not source:
             return DEFAULT_TRUST_SCORE
 
+        normalised_source = source.strip().lower()
+
         return SOURCE_TRUST.get(
-            source,
+            normalised_source,
             DEFAULT_TRUST_SCORE,
         )
