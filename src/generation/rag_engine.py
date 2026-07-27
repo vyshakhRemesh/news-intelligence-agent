@@ -29,29 +29,80 @@ class NewsGenerationEngine:
 
         # Define the strict instructions for the LLM
         self.prompt_template = PromptTemplate(
-            template="""You are a highly analytical News Intelligence Agent. 
+    template="""You are a highly analytical News Intelligence Agent.
 Your task is to synthesize a factual, unbiased news briefing based ONLY on the provided context.
 
 Context Articles:
 {context}
 
+Contradiction Analysis:
+{contradiction_context}
+
 User Query: {question}
 
-Trust Score Warning: {trust_score_warning}
+Trust Score Warning:
+{trust_score_warning}
 
 Instructions:
 1. Do not use outside knowledge. If the answer is not in the context, state that you do not have enough information.
 2. Synthesize the different perspectives from the provided articles.
-3. If there is a Trust Score warning, clearly state it at the very beginning of your briefing.
+3. If there is a Trust Score warning, clearly state it at the beginning of your briefing.
+4. Use the contradiction analysis to clearly explain disagreements between the articles.
+5. Do not claim a contradiction unless it is marked as detected in the contradiction analysis.
 
 Briefing:""",
-            input_variables=["context", "question", "trust_score_warning"]
-        )
+    input_variables=[
+        "context",
+        "contradiction_context",
+        "question",
+        "trust_score_warning",
+    ],
+)
 
         # LangChain Expression Language (LCEL) Pipeline
         self.chain = self.prompt_template | self.llm | self.output_parser
 
+    @staticmethod
+    def _format_contradiction_comparisons(
+        contradiction_result: dict,
+    ) -> str:
+        reference = contradiction_result.get(
+            "reference_article"
+        )
 
+        if not reference:
+            return "No reference article was available."
+
+        lines = [
+            (
+                "Most trusted reference article: "
+                f"{reference['title']} "
+                f"(trust score: {reference['trust_score']})"
+            )
+        ]
+
+        comparisons = contradiction_result.get(
+            "comparisons",
+            [],
+        )
+
+        for comparison in comparisons:
+            status = (
+                "Contradiction detected"
+                if comparison["is_contradiction"]
+                else "No contradiction detected"
+            )
+
+            lines.append(
+                f"- Compared with "
+                f"{comparison['compared_article_title']}: "
+                f"contradiction score "
+                f"{comparison['contradiction_score']:.4f}; "
+                f"{status}."
+            )
+
+        return "\n".join(lines)
+    
     def generate_briefing(
     self,
     question: str,
@@ -91,9 +142,16 @@ Briefing:""",
             else "No relevant articles found."
         )
 
+        # Calculate and attach trust score to every article
+        for article in retrieved_articles:
+            if isinstance(article, dict):
+                article["trust_score"] = TrustScore.calculate(article)
+
+        # Use the calculated trust scores
         trust_scores = [
-            TrustScore.calculate(article)
+            article.get("trust_score", 0)
             for article in retrieved_articles
+            if isinstance(article, dict)
         ]
 
         average_trust_score = (
@@ -103,12 +161,48 @@ Briefing:""",
         )
 
         contradiction_result = (
-            self.contradiction_service.analyse_articles(
+            self.contradiction_service
+            .analyse_against_most_trusted(
                 articles=retrieved_articles,
                 threshold=contradiction_threshold,
-                save_results=self.db is not None,
+                save_results=True,
             )
         )
+
+        contradiction_context = (
+            self._format_contradiction_comparisons(
+                contradiction_result
+            )
+        )
+
+        reference = contradiction_result.get(
+            "reference_article"
+        )
+
+        if reference:
+            logger.info(
+                "Most trusted reference article: %s "
+                "| Trust score: %s",
+                reference["title"],
+                reference["trust_score"],
+            )
+
+        for comparison in contradiction_result.get(
+            "comparisons",
+            [],
+        ):
+            logger.info(
+                "Reference: %s | Compared with: %s | "
+                "Contradiction: %.4f | "
+                "Entailment: %.4f | Neutral: %.4f | "
+                "Detected: %s",
+                comparison["reference_article_title"],
+                comparison["compared_article_title"],
+                comparison["contradiction_score"],
+                comparison["entailment_score"],
+                comparison["neutral_score"],
+                comparison["is_contradiction"],
+            )
 
         logger.info(
             "Contradiction result: %s",
@@ -117,52 +211,57 @@ Briefing:""",
 
         logger.info(
             "Contradiction count: %s",
-            contradiction_result.get("contradiction_count", 0),
-        )
-        logger.info(
-            "Contradiction count: %s",
             contradiction_result.get("contradiction_count", 0)
         )
 
-        contradictions = contradiction_result.get(
-            "contradictions",
-            []
+        comparisons = contradiction_result.get(
+            "comparisons",
+            [],
         )
 
-        if not contradictions:
+        detected_contradictions = [
+            comparison
+            for comparison in comparisons
+            if comparison["is_contradiction"]
+        ]
+
+        if not detected_contradictions:
             logger.info(
                 "No contradictions exceeded threshold %.2f",
-                contradiction_threshold
+                contradiction_threshold,
             )
         else:
-            for index, contradiction in enumerate(
-                contradictions,
-                start=1
+            for index, comparison in enumerate(
+                detected_contradictions,
+                start=1,
             ):
-                logger.info("Contradiction %d:", index)
-
                 logger.info(
-                    "   Article 1: %s",
-                    contradiction.get(
-                        "article_1_title",
-                        "Untitled"
-                    )
+                    "Contradiction %d:",
+                    index,
                 )
 
                 logger.info(
-                    "   Article 2: %s",
-                    contradiction.get(
-                        "article_2_title",
-                        "Untitled"
-                    )
+                    "   Reference article: %s",
+                    comparison.get(
+                        "reference_article_title",
+                        "Untitled",
+                    ),
+                )
+
+                logger.info(
+                    "   Compared article: %s",
+                    comparison.get(
+                        "compared_article_title",
+                        "Untitled",
+                    ),
                 )
 
                 logger.info(
                     "   Contradiction score: %.4f",
-                    contradiction.get(
+                    comparison.get(
                         "contradiction_score",
-                        0.0
-                    )
+                        0.0,
+                    ),
                 )
 
         warnings = []
@@ -184,6 +283,7 @@ Briefing:""",
 
         response = self.chain.invoke({
             "context": context_text,
+            "contradiction_context": contradiction_context,
             "question": question,
             "trust_score_warning": warning,
         })

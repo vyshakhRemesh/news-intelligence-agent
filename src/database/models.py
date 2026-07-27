@@ -23,7 +23,7 @@ class RawArticles(Base):
     source_name: Mapped[str] = mapped_column(String(255), nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=True)
-    url: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False)
+    url: Mapped[str] = mapped_column(String(1000), nullable=False)
     published_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     # Add these fields to RawArticles class
     content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
