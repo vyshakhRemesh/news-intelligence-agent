@@ -9,6 +9,7 @@ class Config:
     NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
     GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", "")
     CURRENTS_API_KEY = os.getenv("CURRENTS_API_KEY", "")
+    NYTIMES_API_KEY = os.getenv("NYTIMES_API_KEY", "")
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:447424@localhost:5432/news_intelligence")
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = int(os.getenv("DB_PORT", 5432))

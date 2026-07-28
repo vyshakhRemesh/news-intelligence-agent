@@ -28,7 +28,7 @@ class NewsAPIClient:
 
             if data.get("status") != "ok":
                 logger.error(f"NewsAPI error: {data.get('message')}")
-                return None
+                return []
 
             articles = []
             for item in data.get("articles", []):
@@ -52,7 +52,7 @@ class NewsAPIClient:
 
         except requests.exceptions.RequestException as e:
             logger.error(f"NewsAPI network error: {e}")
-            return None
+            return []  # FIX: was returning None, which breaks all_articles.extend()
 
     def _parse_date(self, date_str):
         if not date_str:
