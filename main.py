@@ -399,11 +399,6 @@ class EnhancedPipeline:
             )
 
             article.sentiment = enrichment.get("sentiment", {})
-            article.primary_topic = enrichment.get(
-                "primary_topic",
-                "general",
-            )
-            article.topics = enrichment.get("topics", [])
             article.keyphrases = enrichment.get("keyphrases", [])
             article.readability = enrichment.get("readability", {})
             article.quality_score = enrichment.get(

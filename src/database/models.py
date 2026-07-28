@@ -67,8 +67,6 @@ class RawArticles(Base):
 
     # Topic Modeling
     topic_id: Mapped[int] = mapped_column(Integer, nullable=True)
-    primary_topic: Mapped[str] = mapped_column(String(50), nullable=True)
-    topics: Mapped[list] = mapped_column(JSONB, default=[], nullable=True)
     
     def __repr__(self) -> str:
         return f"<RawArticle(id={self.id}, title={self.title[:30]}..., source={self.source_name})>"
