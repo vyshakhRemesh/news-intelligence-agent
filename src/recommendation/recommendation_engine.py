@@ -11,6 +11,7 @@ from src.recommendation.trust_score import TrustScore
 from src.recommendation.freshness_score import FreshnessScore
 from src.recommendation.user_interest import UserInterest
 from src.recommendation.source_preference import SourcePreference
+from src.recommendation.confidence_score import ConfidenceScore
 from src.config.recommendation_config import (
     TRUST_WEIGHT,
     CONFIDENCE_WEIGHT,
@@ -31,8 +32,9 @@ class RecommendationEngine:
 
         freshness = FreshnessScore.calculate(article)
 
-        # quality_score is already calculated by DataEnricher
-        confidence = getattr(article, "quality_score", 50) or 50
+        # Confidence is calculated independently.
+        # It no longer uses article.quality_score.
+        confidence = ConfidenceScore.calculate(article)
 
         interest = UserInterest.calculate(article, user)
 
