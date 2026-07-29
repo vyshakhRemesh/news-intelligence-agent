@@ -596,6 +596,11 @@ class EnhancedPipeline:
             user=user,
             save_results=True,
         )
+        self.db.commit()
+
+        logger.info(
+        "Recommendation results committed to database."
+        )
 
         logger.info(
             "Recommendation completed (%d articles scored).",
