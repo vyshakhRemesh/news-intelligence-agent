@@ -15,10 +15,21 @@ class ContradictionEngine:
     """
 
     def __init__(self):
-
-        self.embedder = EmbeddingGenerator()
-        self.chroma = ChromaManager()
+        self._embedder = None
+        self._chroma = None
         self.nli = NLIModel()
+
+    @property
+    def embedder(self):
+        if self._embedder is None:
+            self._embedder = EmbeddingGenerator()
+        return self._embedder
+
+    @property
+    def chroma(self):
+        if self._chroma is None:
+            self._chroma = ChromaManager()
+        return self._chroma
 
     def detect_contradictions(
         self,
