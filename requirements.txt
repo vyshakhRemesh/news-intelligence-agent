@@ -125,6 +125,7 @@ pillow==12.3.0
 platformdirs==4.10.0
 plotly==6.9.0
 posthog>=2.4.0,<6.0.0
+prefect==3.8.0
 preshed==3.0.13
 prompt_toolkit==3.0.52
 propcache==0.5.2
