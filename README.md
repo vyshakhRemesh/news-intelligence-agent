@@ -117,38 +117,42 @@ This enables the platform to identify conflicting reports across multiple publis
 # 🏗 System Architecture
 
 ```
-                News APIs + RSS
-                      │
-                      ▼
-           Parallel News Ingestion
-                      │
-                      ▼
-             NLP Preprocessing
-                      │
-                      ▼
-               Deduplication
-                      │
-                      ▼
-             PostgreSQL Database
-                      │
-        ┌─────────────┴─────────────┐
-        ▼                           ▼
-  BERTopic Clustering        Recommendation Engine
-        ▼                           ▼
-Sentence Embeddings          Trust Scoring
-        ▼
-     ChromaDB
-        │
- ┌──────┴───────────┐
- ▼                  ▼
-Executive Agent   Q&A Agent
- ▼                  ▼
-Briefings      Semantic Retrieval
- ▼                  ▼
-PDF Reports      LLM Responses
- ▼
-Email Delivery
+                             External News APIs / RSS
+                               │
+                               ▼
+                    Parallel News Collection
+                               │
+                               ▼
+                 Cleaning & NLP Preprocessing
+                               │
+                               ▼
+                        Deduplication
+                               │
+                               ▼
+                         PostgreSQL
+                               │
+          ┌────────────────────┴────────────────────┐
+          │                                         │
+          ▼                                         ▼
+ Recommendation Engine                     BERTopic Clustering
+          │                                         │
+          ▼                                         ▼
+ Trust Scoring                     Sentence Transformer Embeddings
+          │                                         │
+          ▼                                         ▼
+ Platform Agent                              ChromaDB
+          │                                         │
+          ▼                                         ▼
+ Executive Briefings                        Q&A Agent (RAG)
+          │                                         │
+          ▼                                         ▼
+ PDF Generation                         Semantic Retrieval
+          │                                         │
+          ▼                                         ▼
+ Personalised Emails                    LLM Response
 ```
+
+
 
 ---
 
