@@ -57,6 +57,20 @@ def data_retrieval_node(state: PlatformState):
         #     .all()
         # )
 
+        # articles = (
+        #     db.query(RawArticles, ArticleRecommendation)
+        #     .outerjoin(
+        #         ArticleRecommendation,
+        #         RawArticles.id == ArticleRecommendation.article_id
+        #     )
+        #     .filter(
+        #         func.lower(RawArticles.primary_topic).in_(lowered_prefs)
+        #     )
+        #     .order_by(RawArticles.published_at.desc())
+        #     .limit(5)
+        #     .all()
+        # )
+
         articles = (
             db.query(RawArticles, ArticleRecommendation)
             .outerjoin(
@@ -64,9 +78,14 @@ def data_retrieval_node(state: PlatformState):
                 RawArticles.id == ArticleRecommendation.article_id
             )
             .filter(
-                func.lower(RawArticles.primary_topic).in_(lowered_prefs)
+                func.lower(RawArticles.primary_topic).in_(lowered_prefs),
+                RawArticles.preprocessing_status == "completed",
+                RawArticles.is_duplicate.is_(False),
             )
-            .order_by(RawArticles.published_at.desc())
+            .order_by(
+                ArticleRecommendation.recommendation_score.desc().nullslast(),
+                RawArticles.published_at.desc(),
+            )
             .limit(5)
             .all()
         )
@@ -126,6 +145,17 @@ def data_retrieval_node(state: PlatformState):
         ]
             
         print(f"   -> Retrieved {len(formatted_articles)} topic-matched articles.")
+        print("\n   📊 TOP RETRIEVED ARTICLES:")
+
+        for i, article in enumerate(formatted_articles, 1):
+            print(
+                f"   {i}. {article['title']}\n"
+                f"      Topic: {article['topic']}\n"
+                f"      Source: {article['source']}\n"
+                f"      Recommendation: {article.get('recommendation_score')}\n"
+                f"      Trust: {article.get('trust_score')}\n"
+                f"      Freshness: {article.get('freshness_score')}\n"
+            )
         return {"retrieved_articles": formatted_articles}
         
     except Exception as e:
@@ -147,13 +177,31 @@ def retry_retrieval_node(state: PlatformState):
         #     .all()
         # )
 
+        # articles = (
+        #     db.query(RawArticles, ArticleRecommendation)
+        #     .outerjoin(
+        #         ArticleRecommendation,
+        #         RawArticles.id == ArticleRecommendation.article_id
+        #     )
+        #     .order_by(RawArticles.published_at.desc())
+        #     .limit(5)
+        #     .all()
+        # )
+
         articles = (
             db.query(RawArticles, ArticleRecommendation)
             .outerjoin(
                 ArticleRecommendation,
                 RawArticles.id == ArticleRecommendation.article_id
             )
-            .order_by(RawArticles.published_at.desc())
+            .filter(
+                RawArticles.preprocessing_status == "completed",
+                RawArticles.is_duplicate.is_(False),
+            )
+            .order_by(
+                ArticleRecommendation.recommendation_score.desc().nullslast(),
+                RawArticles.published_at.desc(),
+            )
             .limit(5)
             .all()
         )
@@ -272,8 +320,12 @@ def brief_gen_node(state: PlatformState):
         briefing = generation_engine.generate_briefing(
 
             question=(
-                "Generate a personalized daily news briefing "
-                "based on the user's preferences."
+                "Generate a personalized daily news briefing covering the "
+                "top distinct news stories for the user's preferences: "
+                f"{', '.join(preferences)}. "
+                "Cover each important retrieved story separately. "
+                "Do not repeatedly discuss the same event. "
+                "Do not force unrelated stories into a single narrative."
             ),
 
             retrieved_articles=state["retrieved_articles"],
@@ -347,18 +399,39 @@ def critic_node(state: PlatformState):
 
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
 
+    article_titles = "\n".join(
+        f"{i}. {article.get('title', 'Untitled')}"
+        for i, article in enumerate(articles, 1)
+    )
+
     prompt = f"""You are a strict Quality Control Editor reviewing a daily news briefing.
 
 USER PREFERENCES: {', '.join(preferences)}
 SOURCE ARTICLES COUNT: {len(articles)}
 
+RETRIEVED ARTICLE TITLES:
+{article_titles}
+
 DRAFT BRIEFING TO EVALUATE:
 {briefing}
 
 EVALUATION CRITERIA:
+
 1. Does the briefing align with the user's requested preferences?
-2. Is the formatting clean, professional, and well-structured?
-3. Does it summarize the content without obvious contradictions or generic fluff?
+
+2. Does it cover the important DISTINCT stories from the retrieved articles?
+
+3. Does it avoid repeatedly discussing the same article or same event?
+
+4. Does each major story receive a concise and useful summary?
+
+5. Does it avoid forcing unrelated stories into one narrative?
+
+6. Is the formatting clean, professional, and suitable for a daily news briefing?
+
+7. Does it stay grounded in the supplied articles without hallucinating?
+
+8. Are trust or contradiction warnings only presented when actually warranted?
 
 Respond STRICTLY in JSON format with two keys:
 {{
@@ -405,9 +478,16 @@ def critic_router(state: PlatformState) -> Literal["deliver", "revise", "end_pip
     max_retries = state.get("max_retries", 2)
 
     # Safety cap against infinite revision loops
+    # if retry_count >= max_retries:
+    #     print(f"   -> Max retries ({max_retries}) reached. Proceeding to delivery.")
+    #     return "deliver"
+
     if retry_count >= max_retries:
-        print(f"   -> Max retries ({max_retries}) reached. Proceeding to delivery.")
-        return "deliver"
+        print(
+            f"   -> Max retries ({max_retries}) reached "
+            "without critic approval. Terminating pipeline."
+        )
+        return "end_pipeline"
 
     if feedback:
         return "revise"
