@@ -64,13 +64,7 @@ class RawArticles(Base):
     source_type: Mapped[Optional[str]] = mapped_column(String(50), default='api', nullable=True)
 
     # Topic Modeling
-<<<<<<< HEAD
     topic_id: Mapped[int] = mapped_column(Integer, nullable=True)
-=======
-    topic_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    primary_topic: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    topics: Mapped[Optional[list]] = mapped_column(JSONB, default=[], nullable=True)
->>>>>>> 081a14ccb5dcb58226538d07b871f7538b77359b
     
     def __repr__(self) -> str:
         return f"<RawArticle(id={self.id}, title={self.title[:30]}..., source={self.source_name})>"
