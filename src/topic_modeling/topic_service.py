@@ -144,7 +144,6 @@ class TopicService:
             .filter(RawArticles.cleaned_content.isnot(None))
             .filter(RawArticles.is_duplicate == False)
             .order_by(RawArticles.published_at.desc())
-            .limit(500)  # Use last 500 articles for retraining
             .all()
         )
 
