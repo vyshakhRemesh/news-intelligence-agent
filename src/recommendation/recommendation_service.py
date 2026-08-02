@@ -36,11 +36,7 @@ class RecommendationService:
 
         return ranked_articles
 
-    def _save_results(
-        self,
-        ranked_articles,
-        user,
-    ):
+    def _save_results(self,ranked_articles,user,):
         if self.db is None:
             raise ValueError(
                 "A database session is required "
@@ -54,28 +50,60 @@ class RecommendationService:
                 article = item["article"]
                 scores = item["scores"]
 
-                record = ArticleRecommendation(
-                    article_id=article.id,
-                    user_id=user_id,
-                    trust_score=scores["trust_score"],
-                    confidence_score=scores[
-                        "confidence_score"
-                    ],
-                    freshness_score=scores[
-                        "freshness_score"
-                    ],
-                    interest_score=scores[
-                        "interest_score"
-                    ],
-                    source_preference_score=scores[
-                        "source_preference_score"
-                    ],
-                    recommendation_score=scores[
-                        "recommendation_score"
-                    ],
+                # Find an existing recommendation for
+                # this article/user combination.
+                query = self.db.query(ArticleRecommendation).filter(
+                    ArticleRecommendation.article_id == article.id
                 )
 
-                self.db.add(record)
+                if user_id is None:
+                    query = query.filter(
+                        ArticleRecommendation.user_id.is_(None)
+                    )
+                else:
+                    query = query.filter(
+                        ArticleRecommendation.user_id == user_id
+                    )
+
+                record = query.first()
+
+                # Update existing recommendation
+                if record:
+                    record.trust_score = scores["trust_score"]
+                    record.confidence_score = scores["confidence_score"]
+                    record.freshness_score = scores["freshness_score"]
+                    record.interest_score = scores["interest_score"]
+                    record.source_preference_score = scores[
+                        "source_preference_score"
+                    ]
+                    record.recommendation_score = scores[
+                        "recommendation_score"
+                    ]
+
+                # Otherwise create it once
+                else:
+                    record = ArticleRecommendation(
+                        article_id=article.id,
+                        user_id=user_id,
+                        trust_score=scores["trust_score"],
+                        confidence_score=scores[
+                            "confidence_score"
+                        ],
+                        freshness_score=scores[
+                            "freshness_score"
+                        ],
+                        interest_score=scores[
+                            "interest_score"
+                        ],
+                        source_preference_score=scores[
+                            "source_preference_score"
+                        ],
+                        recommendation_score=scores[
+                            "recommendation_score"
+                        ],
+                    )
+
+                    self.db.add(record)
 
             self.db.commit()
 

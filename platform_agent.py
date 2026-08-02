@@ -86,9 +86,40 @@ def data_retrieval_node(state: PlatformState):
                 ArticleRecommendation.recommendation_score.desc().nullslast(),
                 RawArticles.published_at.desc(),
             )
-            .limit(5)
+            .limit(20)
             .all()
         )
+
+        # taking extra articles insted of 5 so that we can avoid duplicates and same source news
+
+        selected_articles = []
+        seen_article_ids = set()
+        source_counts = {}
+
+        for article, recommendation in articles:
+
+            # Defense against duplicate join results
+            if article.id in seen_article_ids:
+                continue
+
+            source = article.source_name or "Unknown"
+
+            # Prefer diversity: maximum 2 stories from one source
+            if source_counts.get(source, 0) >= 2:
+                continue
+
+            selected_articles.append(
+                (article, recommendation)
+            )
+
+            seen_article_ids.add(article.id)
+
+            source_counts[source] = (
+                source_counts.get(source, 0) + 1
+            )
+
+            if len(selected_articles) == 5:
+                break
             
         # formatted_articles = [
         #     {
@@ -141,7 +172,7 @@ def data_retrieval_node(state: PlatformState):
                     if recommendation else None
                 ),
             }
-            for article, recommendation in articles
+            for article, recommendation in selected_articles
         ]
             
         print(f"   -> Retrieved {len(formatted_articles)} topic-matched articles.")
@@ -202,9 +233,38 @@ def retry_retrieval_node(state: PlatformState):
                 ArticleRecommendation.recommendation_score.desc().nullslast(),
                 RawArticles.published_at.desc(),
             )
-            .limit(5)
+            .limit(20)
             .all()
         )
+
+        selected_articles = []
+        seen_article_ids = set()
+        source_counts = {}
+
+        for article, recommendation in articles:
+
+            # Defense against duplicate join results
+            if article.id in seen_article_ids:
+                continue
+
+            source = article.source_name or "Unknown"
+
+            # Prefer diversity: maximum 2 stories from one source
+            if source_counts.get(source, 0) >= 2:
+                continue
+
+            selected_articles.append(
+                (article, recommendation)
+            )
+
+            seen_article_ids.add(article.id)
+
+            source_counts[source] = (
+                source_counts.get(source, 0) + 1
+            )
+
+            if len(selected_articles) == 5:
+                break
 
         # formatted_articles = [
         #     {
@@ -263,7 +323,7 @@ def retry_retrieval_node(state: PlatformState):
                     if recommendation else None
                 ),
             }
-            for article, recommendation in articles
+            for article, recommendation in selected_articles
         ]
 
         print(f"   -> Broadened retrieval returned {len(formatted_articles)} articles.")

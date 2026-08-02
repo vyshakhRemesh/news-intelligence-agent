@@ -28,50 +28,138 @@ class NewsGenerationEngine:
         self.contradiction_service = ContradictionService(db=db)
 
         # Define the strict instructions for the LLM
+# ********************************************************
+#         Prompt for briefing 
+
         self.prompt_template = PromptTemplate(
-    template="""You are a highly analytical News Intelligence Agent.
-Your task is to synthesize a factual, unbiased news briefing based ONLY on the provided context.
+        template="""You are a highly analytical News Intelligence Agent.
+        Your task is to synthesize a factual, unbiased news briefing based ONLY on the provided context.
 
-Context Articles:
-{context}
+        Context Articles:
+        {context}
 
-Contradiction Analysis:
-{contradiction_context}
+        Contradiction Analysis:
+        {contradiction_context}
 
-User Query: {question}
+        User Query: {question}
 
-Trust Score Warning:
-{trust_score_warning}
+        Trust Score Warning:
+        {trust_score_warning}
 
-Previous Critic Feedback:
-{critique_feedback}
+        Previous Critic Feedback:
+        {critique_feedback}
 
-Use this feedback only to improve the briefing.
-Do NOT mention, summarize, or refer to the critic, the review process, revisions, previous drafts, or internal feedback in the final response.
-Return only the final improved briefing.
+        Use this feedback only to improve the briefing.
+        Do NOT mention, summarize, or refer to the critic, the review process, revisions, previous drafts, or internal feedback in the final response.
+        Return only the final improved briefing.
 
-Instructions:
+        Instructions:
 
-1. Do not use outside knowledge. If the answer is not in the context, state that you do not have enough information.
-2. Synthesize the different perspectives from the provided articles.
-3. If there is a Trust Score warning, clearly state it at the beginning of your briefing.
-4. Use the contradiction analysis to clearly explain disagreements between the articles.
-5. Do not claim a contradiction unless it is marked as detected in the contradiction analysis.
-6. If Previous Critic Feedback is not "None", revise the briefing by addressing every issue mentioned while preserving factual accuracy.
-7. If Previous Critic Feedback is "None", generate the briefing normally.
+        1. Do not use outside knowledge. If the answer is not in the context, state that you do not have enough information.
+        2. Synthesize the different perspectives from the provided articles.
+        3. If Trust Score Warning is empty, do NOT mention a trust warning,
+        trust caution, or trust disclaimer.Only display a trust warning when explicit warning text is supplied.
+        4. Use the contradiction analysis to clearly explain disagreements between the articles.
+        5. Do not claim a contradiction unless it is marked as detected in the contradiction analysis.
+        6. If Previous Critic Feedback is not "None", revise the briefing by addressing every issue mentioned while preserving factual accuracy.
+        7. If Previous Critic Feedback is "None", generate the briefing normally.
+        8.The supplied stories are already ranked by recommendation score.
+        Preserve this ranking in the briefing.
+        Cover the highest-ranked distinct stories first.
+        Do not select stories based on trust score alone.
+        Trust score represents credibility and should not replace recommendation ranking.
+        Do not invent additional stories from outside the supplied article context.
 
-Briefing:""",
-   input_variables=[
-        "context",
-        "contradiction_context",
-        "question",
-        "trust_score_warning",
-        "critique_feedback",
-    ],
-)
+        Briefing:""",
+        input_variables=[
+                "context",
+                "contradiction_context",
+                "question",
+                "trust_score_warning",
+                "critique_feedback",
+            ],
+        )
+
+# *********************************************************
+#        Prompt for Q&A
+
+        self.qna_prompt_template = PromptTemplate(
+        template="""You are a News Intelligence Question Answering Assistant.
+
+        Your task is to answer the user's question using ONLY the retrieved news articles provided below.
+
+        Retrieved Articles:
+        {context}
+
+        Contradiction Analysis:
+        {contradiction_context}
+
+        User Question:
+        {question}
+
+        Trust Score Warning:
+        {trust_score_warning}
+
+        Previous Critic Feedback:
+        {critique_feedback}
+
+        Instructions:
+
+        1. Answer the user's question directly and clearly.
+
+        2. Use ONLY information contained in the retrieved articles.
+        Do not use outside knowledge.
+
+        3. The articles were retrieved from ChromaDB using semantic similarity
+        to the user's question. Treat the most relevant retrieved articles
+        as the primary evidence.
+
+        4. Do NOT assume the articles are ranked by recommendation score.
+
+        5. If the retrieved articles do not contain enough information to
+        answer the question, clearly state that there is not enough
+        information in the retrieved news context.
+
+        6. Do not invent facts, people, events, statistics, or explanations.
+
+        7. Combine information from multiple retrieved articles when they
+        contribute relevant information to the answer.
+
+        8. Ignore retrieved articles that are not relevant to the question.
+
+        9. If contradiction analysis identifies a genuine contradiction,
+        briefly explain the disagreement.
+
+        10. Do not mention contradiction analysis when no meaningful
+            contradiction was detected.
+
+        11. Only show a trust warning when explicit warning text is supplied.
+
+        12. If Previous Critic Feedback is not "None", improve the answer by
+            addressing that feedback.
+
+        13. Never mention the critic, revision process, previous draft,
+            internal feedback, retrieval process, ChromaDB, embeddings,
+            recommendation scores, or internal system architecture.
+
+        14. Return only the final answer to the user's question.
+
+        Answer:""",
+            input_variables=[
+                "context",
+                "contradiction_context",
+                "question",
+                "trust_score_warning",
+                "critique_feedback",
+            ],
+        )
+# *********************************************************
 
         # LangChain Expression Language (LCEL) Pipeline
+        #     For briefing
         self.chain = self.prompt_template | self.llm | self.output_parser
+        #     For Q&A
+        self.qna_chain = (self.qna_prompt_template | self.llm | self.output_parser)
 
 
     # **********************************
@@ -174,8 +262,24 @@ Briefing:""",
                 title = f"Article {idx}"
                 content = str(doc)
 
+            # formatted_docs.append(
+            #     f"--- {title} ---\n{content}"
+            # )
+
+            recommendation_score = doc.get(
+                "recommendation_score"
+            )
+
+            source = doc.get(
+                "source",
+                "Unknown"
+            )
+
             formatted_docs.append(
-                f"--- {title} ---\n{content}"
+                f"--- Ranked Story {idx}: {title} ---\n"
+                f"Source: {source}\n"
+                f"Recommendation Score: {recommendation_score}\n"
+                f"Content:\n{content}"
             )
 
         context_text = (
@@ -459,6 +563,42 @@ Briefing:""",
         # })
 
         response = self.chain.invoke({
+            "context": prompt_context["context"],
+            "contradiction_context": prompt_context["contradiction_context"],
+            "question": question,
+            "trust_score_warning": prompt_context["trust_warning"],
+            "critique_feedback": feedback_text,
+        })
+
+        return response
+
+
+    def generate_qna_answer(
+        self,
+        question: str,
+        retrieved_articles: list,
+        critique_feedback: str = "",
+        contradiction_threshold: float = 0.70,
+    ):
+        """
+        Generates an answer to a user question using articles
+        retrieved through semantic search from ChromaDB.
+        """
+
+        analysed = self.analyse_articles(
+            retrieved_articles=retrieved_articles,
+            contradiction_threshold=contradiction_threshold,
+        )
+
+        prompt_context = self.build_context(analysed)
+
+        feedback_text = (
+            critique_feedback
+            if critique_feedback
+            else "None"
+        )
+
+        response = self.qna_chain.invoke({
             "context": prompt_context["context"],
             "contradiction_context": prompt_context["contradiction_context"],
             "question": question,
