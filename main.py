@@ -202,7 +202,7 @@ class EnhancedPipeline:
 
             self.run_recommendation()
             self.run_deduplication()
-            self.run_rag_pipeline()
+            # self.run_rag_pipeline()
 
             logger.info("Pipeline stages completed successfully.")
 
