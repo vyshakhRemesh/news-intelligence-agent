@@ -1,36 +1,19 @@
-# src/ingestion/newsapi_client.py
 import requests
 import logging
-from typing import List, Dict, Optional
+from datetime import datetime
 from src.config import Config
 
-# Set up logging for this specific module
 logger = logging.getLogger(__name__)
 
 class NewsAPIClient:
-    """
-    A robust client for fetching live news articles from NewsAPI.
-    """
-    # The base URL for the API
     BASE_URL = "https://newsapi.org/v2"
 
     def __init__(self):
-        # We grab the secure API key from our config file
         self.api_key = Config.NEWS_API_KEY
-        
-        # NewsAPI requires the key to be sent in the 'Headers' of the request, 
-        # not in the visible URL, for security reasons.
-        self.headers = {
-            "X-Api-Key": self.api_key
-        }
+        self.headers = {"X-Api-Key": self.api_key}
 
-    def fetch_top_headlines(self, category: str = "general", language: str = "en", page_size: int = 100) -> Optional[List[Dict]]:
-        """
-        Connects to the top-headlines endpoint and returns a list of article dictionaries.
-        """
+    def fetch_top_headlines(self, category="general", language="en", page_size=100):
         endpoint = f"{self.BASE_URL}/top-headlines"
-        
-        # These are the filters we apply to the search
         params = {
             "category": category,
             "language": language,
@@ -38,28 +21,43 @@ class NewsAPIClient:
         }
 
         try:
-            logger.info(f"Connecting to NewsAPI to fetch top '{category}' headlines...")
-            
-            # The actual HTTP GET request. We enforce a 10-second timeout so our 
-            # pipeline doesn't freeze forever if the API server crashes.
+            logger.info(f"Fetching NewsAPI: {category}")
             response = requests.get(endpoint, headers=self.headers, params=params, timeout=10)
-            
-            # If the API returns an error code (like 401 Unauthorized or 404 Not Found),
-            # this line instantly raises an exception so we know about it.
-            response.raise_for_status() 
-            
-            # Convert the raw JSON text from the internet into a Python Dictionary
+            response.raise_for_status()
             data = response.json()
-            
-            if data.get("status") == "ok":
-                articles = data.get("articles", [])
-                logger.info(f"Success! Fetched {len(articles)} articles from NewsAPI.")
-                return articles
-            else:
-                logger.error(f"NewsAPI returned a logical error: {data.get('message')}")
-                return None
+
+            if data.get("status") != "ok":
+                logger.error(f"NewsAPI error: {data.get('message')}")
+                return []
+
+            articles = []
+            for item in data.get("articles", []):
+                source_obj = item.get("source", {})
+                source_name = source_obj.get("name", "NewsAPI") if isinstance(source_obj, dict) else "NewsAPI"
+
+                articles.append({
+                    "title": item.get("title", ""),
+                    "author": item.get("author", ""),
+                    "source_name": source_name,
+                    "source_type": "API",
+                    "description": item.get("description", ""),
+                    "content": item.get("content", ""),
+                    "url": item.get("url", ""),
+                    "published_at": self._parse_date(item.get("publishedAt")),
+                    "fetched_at": datetime.now()
+                })
+
+            logger.info(f"NewsAPI: {len(articles)} articles")
+            return articles
 
         except requests.exceptions.RequestException as e:
-            # This catches internet connection drops or timeout failures
-            logger.error(f"Network error while fetching from NewsAPI: {e}")
-            return None
+            logger.error(f"NewsAPI network error: {e}")
+            return []  # FIX: was returning None, which breaks all_articles.extend()
+
+    def _parse_date(self, date_str):
+        if not date_str:
+            return datetime.now()
+        try:
+            return datetime.strptime(date_str.replace("Z", ""), "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            return datetime.now()

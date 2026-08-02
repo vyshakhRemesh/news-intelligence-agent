@@ -1,6 +1,6 @@
 import chromadb
 import logging
-
+from chromadb.config import Settings
 logger = logging.getLogger(__name__)
 
 
@@ -11,7 +11,10 @@ class ChromaManager:
         logger.info("Initializing ChromaDB...")
 
         self.client = chromadb.PersistentClient(
-            path="./chroma_db"
+            path="./chroma_db",
+            settings=Settings(
+                anonymized_telemetry=False
+            )
         )
 
         self.collection = self.client.get_or_create_collection(
@@ -70,6 +73,29 @@ class ChromaManager:
         embedding = embedder.generate_embedding(query_text)
         return self.search_articles(query_embedding=embedding, top_k=top_k)
 
+    def get_article(self, article_id):
+        """
+        Returns the stored ChromaDB record for an article.
+        """
+
+        result = self.collection.get(
+            ids=[str(article_id)],
+            include=[
+                "documents",
+                "embeddings",
+                "metadatas",
+            ],
+        )
+
+        if not result["ids"]:
+            return None
+
+        return {
+            "id": result["ids"][0],
+            "document": result["documents"][0],
+            "embedding": result["embeddings"][0],
+            "metadata": result["metadatas"][0],
+        }
     # ---------------- Count Articles ----------------
     def count_articles(self):
 
