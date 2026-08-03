@@ -100,7 +100,7 @@ class EnhancedPipeline:
         self.data_enricher = DataEnricher()
         self.embedding_generator = EmbeddingGenerator()
         self.chroma_manager = ChromaManager()
-        self.topic_service = TopicService()
+        
 
         try:
             self.entity_extractor = SpacyEntityExtractor(
@@ -136,6 +136,7 @@ class EnhancedPipeline:
 
         init_db()
         self.db = SessionLocal()
+        self.topic_service = TopicService(db=self.db)
         logger.info("Database ready")
 
         try:
@@ -399,11 +400,6 @@ class EnhancedPipeline:
             )
 
             article.sentiment = enrichment.get("sentiment", {})
-            article.primary_topic = enrichment.get(
-                "primary_topic",
-                "general",
-            )
-            article.topics = enrichment.get("topics", [])
             article.keyphrases = enrichment.get("keyphrases", [])
             article.readability = enrichment.get("readability", {})
             article.quality_score = enrichment.get(
@@ -442,11 +438,10 @@ class EnhancedPipeline:
                         text=cleaned["cleaned_text"],
                         embedding=embedding,
                         metadata={
-                            "title": title,
-                            "source": article.source_name,
-                            "language": article.language,
-                            "topic": article.primary_topic,
-                            "quality_score": article.quality_score,
+                            "title": title or "",
+                            "source": article.source_name or "Unknown",
+                            "language": article.language or "unknown",
+                            "quality_score": article.quality_score or 0,
                         },
                     )
 
