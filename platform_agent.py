@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 from sqlalchemy import func
 from langgraph.graph import StateGraph, START, END
 from langchain_groq import ChatGroq
+from datetime import datetime
+from src.reporting.pdf_generator import generate_pdf
+from src.email.email_sender import send_email
 
 import re
 from difflib import SequenceMatcher
@@ -710,33 +713,97 @@ def critic_router(state: PlatformState) -> Literal["deliver", "revise", "end_pip
     
     return "deliver"
 
-
 def delivery_node(state: PlatformState):
-    """Saves the approved daily briefing to the PostgreSQL daily_briefings table."""
-    print("🚀 DELIVERY: Saving approved briefing to PostgreSQL database...")
+    """
+    Saves the approved daily briefing,
+    generates the PDF report,
+    and emails it to the configured recipients.
+    """
+
+    print("🚀 DELIVERY: Processing final briefing...")
 
     if not state.get("final_briefing"):
-        print("   ⚠️ No valid briefing available. Skipping database save.")
-        return state
+
+        print("⚠️ AI briefing unavailable. Using fallback briefing.")
+
+        article_count = len(state.get("retrieved_articles", []))
+
+        state["final_briefing"] = (
+            f"The AI-generated executive summary is unavailable because the "
+            f"language model reached its request limit.\n\n"
+            f"This report contains {article_count} retrieved news articles "
+            f"collected from trusted sources. Please refer to the detailed "
+            f"article analysis section for the latest updates."
+        )
 
     db = SessionLocal()
+
     try:
+
+        # -----------------------------
+        # Prepare Briefing for PostgreSQL
+        # -----------------------------
         new_briefing = DailyBriefing(
             user_id=state.get("user_id", "unknown_user"),
-            topic_preferences=",".join(state.get("user_preferences", [])),
-            content=state.get("final_briefing", "")
+            topic_preferences=",".join(
+                state.get("user_preferences", [])
+            ),
+            content=state["final_briefing"]
         )
+
         db.add(new_briefing)
-        db.commit()
-        print("   -> Briefing successfully saved to PostgreSQL ('daily_briefings' table)!")
+
+        # -----------------------------
+        # Generate PDF
+        # -----------------------------
+        print("📄 Generating PDF report...")
+
+        pdf_path = (
+            "src/reports/"
+            f"Daily_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        )
+
+        generate_pdf(
+            briefing=state["final_briefing"],
+            articles=state["retrieved_articles"],
+            output_path=pdf_path,
+        )
+
+        # -----------------------------
+        # Verify PDF & Send Email
+        # -----------------------------
+        if os.path.exists(pdf_path):
+
+            print(f"✅ PDF Generated: {pdf_path}")
+            print("📧 Sending Email...")
+
+            if send_email(pdf_path):
+
+                db.commit()
+
+                print("✅ Briefing saved successfully.")
+                print("✅ Email sent successfully.")
+
+            else:
+
+                db.rollback()
+                print("❌ Email sending failed.")
+
+        else:
+
+            db.rollback()
+            print("❌ PDF generation failed.")
+
     except Exception as e:
+
         db.rollback()
-        print(f"❌ Database Save Error: {e}")
+        print(f"❌ Delivery Error: {e}")
+
     finally:
+
         db.close()
 
     return state
-
 
 # --- 3. Wire the Agentic LangGraph Graph ---
 def build_platform_agent():
