@@ -156,7 +156,7 @@ def generate_node(state: QnAState):
 
         generation_engine = NewsGenerationEngine(db=db)
 
-        answer = generation_engine.generate_briefing(
+        answer = generation_engine.generate_qna_answer(
 
             question=state["question"],
 
@@ -223,31 +223,55 @@ def critic_node(state: QnAState):
         temperature=0,
     )
 
-    prompt = f"""
-You are a strict quality reviewer.
+    article_context = "\n\n".join(
 
-Question:
+    f"""
+Article {i}
+Title: {article.get('title', 'Untitled')}
+Source: {article.get('source', 'Unknown')}
+Content: {article.get('content', article.get('text', ''))}
+"""
+
+    for i, article in enumerate(articles, 1)
+
+)
+
+    prompt = f"""
+You are a strict quality reviewer for a news RAG question-answering system.
+
+User Question:
 {state["question"]}
 
-Retrieved Articles:
-{len(articles)}
+Retrieved News Context:
+{article_context}
 
 Generated Answer:
 {answer}
 
-Evaluate:
+Evaluate the answer using these criteria:
 
-1. Did it answer the question?
+1. Does the answer directly answer the user's question?
 
-2. Did it stay within the supplied context?
+2. Is every factual claim supported by the retrieved news context?
 
-3. Is it factual and coherent?
+3. Does the answer avoid information that is not present in the
+   retrieved articles?
 
-Return ONLY JSON.
+4. Does it avoid hallucinated facts, people, events, or statistics?
+
+5. Does it ignore irrelevant retrieved articles?
+
+6. Does it combine relevant information clearly when multiple
+   articles contribute to the answer?
+
+7. If the retrieved context is insufficient, does the answer
+   acknowledge that instead of inventing information?
+
+Return ONLY valid JSON:
 
 {{
-    "status":"APPROVED" or "NEEDS_REVISION",
-    "feedback":"reason"
+    "status": "APPROVED" or "NEEDS_REVISION",
+    "feedback": "Concise explanation of what must be improved"
 }}
 """
 
