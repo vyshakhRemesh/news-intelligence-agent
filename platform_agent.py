@@ -7,6 +7,9 @@ from sqlalchemy import func
 from langgraph.graph import StateGraph, START, END
 from langchain_groq import ChatGroq
 
+import re
+from difflib import SequenceMatcher
+
 # Load environment variables and project root
 load_dotenv()
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -119,7 +122,17 @@ def data_retrieval_node(state: PlatformState):
         for article, recommendation in articles:
 
             # Defense against duplicate join results
+            # Skip demo/test data
+            demo_keywords = {"demo source", "test source", "mock source"}
+            if any(kw in (article.source_name or "").lower() for kw in demo_keywords):
+                continue
+
+            #  skip duplicate article IDs (defensive against join artifacts)
             if article.id in seen_article_ids:
+                continue
+
+            #  skip if same title already selected (catches same story, different DB rows)
+            if article.title in {a[0].title for a in selected_articles}:
                 continue
 
             source = article.source_name or "Unknown"
@@ -194,7 +207,7 @@ def data_retrieval_node(state: PlatformState):
             }
             for article, recommendation in selected_articles
         ]
-            
+        
         print(f"   -> Retrieved {len(formatted_articles)} topic-matched articles.")
         print("\n   📊 TOP RETRIEVED ARTICLES:")
 
@@ -207,6 +220,7 @@ def data_retrieval_node(state: PlatformState):
                 f"      Trust: {selected_articles.get('trust_score')}\n"
                 f"      Freshness: {selected_articles.get('freshness_score')}\n"
             )
+        formatted_articles = detect_conflicts(formatted_articles)
         return {"retrieved_articles": formatted_articles}
         
     except Exception as e:
@@ -276,7 +290,8 @@ def retry_retrieval_node(state: PlatformState):
         for article, recommendation in articles:
 
             # Avoid duplicate article IDs
-            if article.id in seen_article_ids:
+            demo_keywords = {"demo source", "test source", "mock source"}
+            if any(kw in (article.source_name or "").lower() for kw in demo_keywords):
                 continue
 
             source = article.source_name or "Unknown"
@@ -425,6 +440,40 @@ def evaluator_node(state: PlatformState) -> Literal["brief_gen", "retry", "end_p
     return "end_pipeline"
 
 
+def detect_conflicts(articles: list) -> list:
+    NEGATION_WORDS = {"not", "no", "never", "does not", "doesn't", "won't", "cannot", "can't"}
+
+    def normalise(title):
+        t = title.lower()
+        for neg in sorted(NEGATION_WORDS, key=len, reverse=True):
+            t = re.sub(r"\b" + re.escape(neg) + r"\b", "", t)
+        return re.sub(r"\s+", " ", t).strip()
+
+    def has_negation(title):
+        t = title.lower()
+        return any(re.search(r"\b" + re.escape(neg) + r"\b", t) for neg in NEGATION_WORDS)
+
+    for i, a in enumerate(articles):
+        a.setdefault("conflict", False)
+        a.setdefault("conflict_note", "")
+        for j, b in enumerate(articles):
+            if i >= j:
+                continue
+            sim = SequenceMatcher(None, normalise(a.get("title", "")), normalise(b.get("title", ""))).ratio()
+            if sim >= 0.70 and (has_negation(a.get("title", "")) != has_negation(b.get("title", ""))):
+                note = (
+                    f"CONFLICTING REPORTS: '{a['title']}' (source: {a['source']}) "
+                    f"contradicts '{b['title']}' (source: {b['source']}). "
+                    "Present both sides. Do not resolve without evidence."
+                )
+                a["conflict"] = True
+                b["conflict"] = True
+                a["conflict_note"] = note
+                b["conflict_note"] = note
+    return articles
+
+
+
 def brief_gen_node(state: PlatformState):
     """Synthesizes or revises the daily briefing using Groq Llama 3.3.
     Incorporates critique_feedback if returning from a revision loop."""
@@ -445,12 +494,23 @@ def brief_gen_node(state: PlatformState):
         briefing = generation_engine.generate_briefing(
 
             question=(
-                "Generate a personalized daily news briefing covering the "
-                "top distinct news stories for the user's preferences: "
-                f"{', '.join(preferences)}. "
-                "Cover each important retrieved story separately. "
-                "Do not repeatedly discuss the same event. "
-                "Do not force unrelated stories into a single narrative."
+                "Generate a personalized daily news briefing for preferences: "
+                f"{', '.join(preferences)}.\n\n"
+                "STRICT RULES:\n"
+                "1. Every fact, name, company, and event MUST appear in the TITLE or "
+                "TEXT of the supplied articles. Do NOT add anything from your training data.\n"
+                "2. Cover each story ONCE. Do not repeat the same event.\n"
+                "3. For any article flagged as conflicting, present BOTH sides clearly. "
+                "Do NOT pick a winner or fabricate a resolution.\n"
+                "4. Do NOT force unrelated stories into one narrative.\n\n"
+                + (
+                    "CONFLICTING REPORTS IN THIS BATCH:\n"
+                    + "\n".join(dict.fromkeys(
+                        a["conflict_note"] for a in articles if a.get("conflict_note")
+                    ))
+                    + "\n\n"
+                    if any(a.get("conflict") for a in articles) else ""
+                )
             ),
 
             retrieved_articles=state["retrieved_articles"],
@@ -635,11 +695,15 @@ def critic_router(state: PlatformState) -> Literal["deliver", "revise", "end_pip
     #     return "deliver"
 
     if retry_count >= max_retries:
-        print(
-            f"   -> Max retries ({max_retries}) reached "
-            "without critic approval. Terminating pipeline."
-        )
-        return "end_pipeline"
+        if state.get("final_briefing"):
+            print(
+                f"   -> Max retries ({max_retries}) reached. "
+                "Delivering best available draft with quality warning."
+            )
+            return "deliver"
+        else:
+            print(f"   -> Max retries ({max_retries}) reached and no draft exists. Terminating.")
+            return "end_pipeline"
 
     if feedback:
         return "revise"
@@ -782,7 +846,16 @@ def run_multi_user_cron():
                 "briefing_approved": False,
             }
             
-            agent.invoke(initial_state)
+            result = agent.invoke(initial_state)
+
+            print("\n" + "=" * 50)
+            if result.get("briefing_approved"):
+                print(f"📰 APPROVED DAILY BRIEFING — {user.name}:")
+            else:
+                print(f"📰 BEST-EFFORT BRIEFING — {user.name} (quality warning attached):")
+            print("=" * 50)
+            print(result.get("final_briefing", "No briefing generated."))
+            print("=" * 50 + "\n")
 
     finally:
         db.close()
