@@ -96,17 +96,49 @@ class ArticleRecommendation(Base):
     __tablename__ = "article_recommendations"
 
     id = Column(Integer, primary_key=True, index=True)
-    article_id = Column(Integer, ForeignKey("raw_articles.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = Column(Integer, nullable=True, index=True)
+
+    article_id = Column(
+        Integer,
+        ForeignKey(
+            "raw_articles.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    user_id = Column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+
     trust_score = Column(Float, nullable=False)
     confidence_score = Column(Float, nullable=False)
     freshness_score = Column(Float, nullable=False)
     interest_score = Column(Float, nullable=False)
     source_preference_score = Column(Float, nullable=False)
-    recommendation_score = Column(Float, nullable=False, index=True)
-    calculated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    recommendation_score = Column(
+        Float,
+        nullable=False,
+        index=True,
+    )
+
+    calculated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     article = relationship("RawArticles")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "article_id",
+            "user_id",
+            name="uq_recommendation_article_user",
+        ),
+    )
 
 
 class ArticleContradiction(Base):

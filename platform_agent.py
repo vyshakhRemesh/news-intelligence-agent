@@ -31,13 +31,22 @@ Base.metadata.create_all(bind=engine)
 
 # --- 1. Define Agent Memory State ---
 class PlatformState(TypedDict):
+
     user_id: str
-    user_preferences: List[str]     # e.g., ["technology", "ai"]
+
+    user_preferences: List[str]
+
     retrieved_articles: List[Dict]
+
     final_briefing: str
-    critique_feedback: str          # Stores feedback from the Critic Node
-    retry_count: int                # Tracks revision/retrieval attempts
-    max_retries: int                # Hard cap to prevent infinite loops
+
+    critique_feedback: str
+
+    retry_count: int
+
+    max_retries: int
+
+    briefing_approved: bool
 
 
 # --- 2. Define Agent Nodes ---
@@ -57,6 +66,20 @@ def data_retrieval_node(state: PlatformState):
         #     .all()
         # )
 
+        # articles = (
+        #     db.query(RawArticles, ArticleRecommendation)
+        #     .outerjoin(
+        #         ArticleRecommendation,
+        #         RawArticles.id == ArticleRecommendation.article_id
+        #     )
+        #     .filter(
+        #         func.lower(RawArticles.primary_topic).in_(lowered_prefs)
+        #     )
+        #     .order_by(RawArticles.published_at.desc())
+        #     .limit(5)
+        #     .all()
+        # )
+
         articles = (
             db.query(RawArticles, ArticleRecommendation)
             .outerjoin(
@@ -64,12 +87,59 @@ def data_retrieval_node(state: PlatformState):
                 RawArticles.id == ArticleRecommendation.article_id
             )
             .filter(
-                func.lower(RawArticles.primary_topic).in_(lowered_prefs)
+                func.lower(RawArticles.primary_topic).in_(lowered_prefs),
+                RawArticles.preprocessing_status == "completed",
+                RawArticles.is_duplicate.is_(False),
             )
-            .order_by(RawArticles.published_at.desc())
-            .limit(5)
+            .order_by(
+                ArticleRecommendation.recommendation_score.desc().nullslast(),
+                RawArticles.published_at.desc(),
+            )
+            .limit(20)
             .all()
         )
+
+        print("\n📋 RAW QUERY RESULTS:")
+
+        for index, (article, recommendation) in enumerate(articles, 1):
+            print(
+                f"{index}. {article.title}\n"
+                f"   Source: {article.source_name}\n"
+                f"   Topic: {article.primary_topic}\n"
+                f"   Recommendation: "
+                f"{recommendation.recommendation_score if recommendation else None}"
+            )
+
+        # taking extra articles insted of 5 so that we can avoid duplicates and same source news
+
+        selected_articles = []
+        seen_article_ids = set()
+        source_counts = {}
+
+        for article, recommendation in articles:
+
+            # Defense against duplicate join results
+            if article.id in seen_article_ids:
+                continue
+
+            source = article.source_name or "Unknown"
+
+            # Prefer diversity: maximum 2 stories from one source
+            if source_counts.get(source, 0) >= 2:
+                continue
+
+            selected_articles.append(
+                (article, recommendation)
+            )
+
+            seen_article_ids.add(article.id)
+
+            source_counts[source] = (
+                source_counts.get(source, 0) + 1
+            )
+
+            if len(selected_articles) == 5:
+                break
             
         # formatted_articles = [
         #     {
@@ -122,10 +192,21 @@ def data_retrieval_node(state: PlatformState):
                     if recommendation else None
                 ),
             }
-            for article, recommendation in articles
+            for article, recommendation in selected_articles
         ]
             
         print(f"   -> Retrieved {len(formatted_articles)} topic-matched articles.")
+        print("\n   📊 TOP RETRIEVED ARTICLES:")
+
+        for i, selected_articles in enumerate(formatted_articles, 1):
+            print(
+                f"   {i}. {selected_articles['title']}\n"
+                f"      Topic: {selected_articles['topic']}\n"
+                f"      Source: {selected_articles['source']}\n"
+                f"      Recommendation: {selected_articles.get('recommendation_score')}\n"
+                f"      Trust: {selected_articles.get('trust_score')}\n"
+                f"      Freshness: {selected_articles.get('freshness_score')}\n"
+            )
         return {"retrieved_articles": formatted_articles}
         
     except Exception as e:
@@ -136,46 +217,102 @@ def data_retrieval_node(state: PlatformState):
 
 
 def retry_retrieval_node(state: PlatformState):
-    """Fallback: Broadens search by pulling general articles if topic filters yielded too few."""
-    print("🔁 RETRY RETRIEVAL: Broadening search — dropping topic constraints...")
-    db = SessionLocal()
-    try:
-        # articles = (
-        #     db.query(RawArticles)
-        #     .order_by(RawArticles.published_at.desc())
-        #     .limit(5)
-        #     .all()
-        # )
+    """
+    Fallback retrieval.
 
+    Keeps the user's topic preferences but broadens the candidate pool.
+    It does NOT drop topic constraints, preventing unrelated stories
+    from entering a personalized briefing.
+    """
+
+    print(
+        "🔁 RETRY RETRIEVAL: Broadening candidate pool "
+        "while preserving user preferences..."
+    )
+
+    db = SessionLocal()
+
+    try:
+
+        lowered_prefs = [
+            p.lower()
+            for p in state["user_preferences"]
+        ]
+
+        # Retrieve a larger candidate pool while STILL
+        # respecting the user's preferred topics.
         articles = (
-            db.query(RawArticles, ArticleRecommendation)
+            db.query(
+                RawArticles,
+                ArticleRecommendation
+            )
             .outerjoin(
                 ArticleRecommendation,
                 RawArticles.id == ArticleRecommendation.article_id
             )
-            .order_by(RawArticles.published_at.desc())
-            .limit(5)
+            .filter(
+                func.lower(RawArticles.primary_topic).in_(lowered_prefs),
+                RawArticles.preprocessing_status == "completed",
+                RawArticles.is_duplicate.is_(False),
+            )
+            .order_by(
+                ArticleRecommendation.recommendation_score.desc().nullslast(),
+                RawArticles.published_at.desc(),
+            )
+            .limit(50)
             .all()
         )
 
-        # formatted_articles = [
-        #     {
-        #         "article_id": art.id,
-        #         "title": art.title,
-        #         "text": art.cleaned_content or art.description or "",
-        #         "source": art.source_name,
-        #         "topic": art.primary_topic,
-        #     }
-        #     for art in articles
-        # ]
+        print(
+            f"   -> Fallback candidate pool: "
+            f"{len(articles)} rows."
+        )
 
+        selected_articles = []
+
+        seen_article_ids = set()
+        source_counts = {}
+
+        for article, recommendation in articles:
+
+            # Avoid duplicate article IDs
+            if article.id in seen_article_ids:
+                continue
+
+            source = article.source_name or "Unknown"
+
+            # Maintain source diversity
+            if source_counts.get(source, 0) >= 2:
+                continue
+
+            selected_articles.append(
+                (article, recommendation)
+            )
+
+            seen_article_ids.add(article.id)
+
+            source_counts[source] = (
+                source_counts.get(source, 0) + 1
+            )
+
+            if len(selected_articles) == 5:
+                break
 
         formatted_articles = [
             {
                 "article_id": article.id,
                 "title": article.title,
-                "text": article.cleaned_content or article.description or "",
-                "content": article.cleaned_content or article.content or "",
+
+                "text":
+                    article.cleaned_content
+                    or article.description
+                    or "",
+
+                "content":
+                    article.cleaned_content
+                    or article.content
+                    or "",
+
                 "description": article.description,
                 "source": article.source_name,
                 "topic": article.primary_topic,
@@ -184,55 +321,91 @@ def retry_retrieval_node(state: PlatformState):
                 "author": article.author,
                 "quality_score": article.quality_score,
 
-                # Recommendation fields
                 "trust_score": (
                     recommendation.trust_score
-                    if recommendation else None
+                    if recommendation
+                    else None
                 ),
 
                 "recommendation_score": (
                     recommendation.recommendation_score
-                    if recommendation else None
+                    if recommendation
+                    else None
                 ),
 
                 "confidence_score": (
                     recommendation.confidence_score
-                    if recommendation else None
+                    if recommendation
+                    else None
                 ),
 
                 "freshness_score": (
                     recommendation.freshness_score
-                    if recommendation else None
+                    if recommendation
+                    else None
                 ),
 
                 "interest_score": (
                     recommendation.interest_score
-                    if recommendation else None
+                    if recommendation
+                    else None
                 ),
 
                 "source_preference_score": (
                     recommendation.source_preference_score
-                    if recommendation else None
+                    if recommendation
+                    else None
                 ),
             }
-            for article, recommendation in articles
+
+            for article, recommendation
+            in selected_articles
         ]
 
-        print(f"   -> Broadened retrieval returned {len(formatted_articles)} articles.")
+        print(
+            f"   -> Fallback retrieval returned "
+            f"{len(formatted_articles)} preference-matched articles."
+        )
+
+        print("\n   📊 FALLBACK RETRIEVED ARTICLES:")
+
+        for i, article in enumerate(
+            formatted_articles,
+            1
+        ):
+
+            print(
+                f"   {i}. {article['title']}\n"
+                f"      Topic: {article['topic']}\n"
+                f"      Source: {article['source']}\n"
+                f"      Recommendation: "
+                f"{article.get('recommendation_score')}"
+            )
+
         return {
-            "retrieved_articles": formatted_articles,
-            "retry_count": state.get("retry_count", 0) + 1,
+            "retrieved_articles":
+                formatted_articles,
+
+            "retry_count":
+                state.get("retry_count", 0) + 1,
         }
 
     except Exception as e:
-        print(f"❌ Retry Retrieval Error: {e}")
+
+        print(
+            f"❌ Retry Retrieval Error: {e}"
+        )
+
         return {
             "retrieved_articles": [],
-            "retry_count": state.get("retry_count", 0) + 1
-        }
-    finally:
-        db.close()
 
+            "retry_count":
+                state.get("retry_count", 0) + 1,
+        }
+
+    finally:
+
+        db.close()
 
 def evaluator_node(state: PlatformState) -> Literal["brief_gen", "retry", "end_pipeline"]:
     """Evaluates whether retrieved article volume is sufficient before attempting generation."""
@@ -272,8 +445,12 @@ def brief_gen_node(state: PlatformState):
         briefing = generation_engine.generate_briefing(
 
             question=(
-                "Generate a personalized daily news briefing "
-                "based on the user's preferences."
+                "Generate a personalized daily news briefing covering the "
+                "top distinct news stories for the user's preferences: "
+                f"{', '.join(preferences)}. "
+                "Cover each important retrieved story separately. "
+                "Do not repeatedly discuss the same event. "
+                "Do not force unrelated stories into a single narrative."
             ),
 
             retrieved_articles=state["retrieved_articles"],
@@ -343,22 +520,47 @@ def critic_node(state: PlatformState):
 
     if not briefing:
         print("   -> Draft is empty. Requesting revision.")
-        return {"critique_feedback": "Draft was empty.", "retry_count": retry_count + 1}
+        return {
+            "critique_feedback": "Draft was empty.",
+            "retry_count": retry_count + 1,
+            "briefing_approved": False,
+        }
 
     llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0)
+
+    article_titles = "\n".join(
+        f"{i}. {article.get('title', 'Untitled')}"
+        for i, article in enumerate(articles, 1)
+    )
 
     prompt = f"""You are a strict Quality Control Editor reviewing a daily news briefing.
 
 USER PREFERENCES: {', '.join(preferences)}
 SOURCE ARTICLES COUNT: {len(articles)}
 
+RETRIEVED ARTICLE TITLES:
+{article_titles}
+
 DRAFT BRIEFING TO EVALUATE:
 {briefing}
 
 EVALUATION CRITERIA:
+
 1. Does the briefing align with the user's requested preferences?
-2. Is the formatting clean, professional, and well-structured?
-3. Does it summarize the content without obvious contradictions or generic fluff?
+
+2. Does it cover the important DISTINCT stories from the retrieved articles?
+
+3. Does it avoid repeatedly discussing the same article or same event?
+
+4. Does each major story receive a concise and useful summary?
+
+5. Does it avoid forcing unrelated stories into one narrative?
+
+6. Is the formatting clean, professional, and suitable for a daily news briefing?
+
+7. Does it stay grounded in the supplied articles without hallucinating?
+
+8. Are trust or contradiction warnings only presented when actually warranted?
 
 Respond STRICTLY in JSON format with two keys:
 {{
@@ -386,16 +588,37 @@ Respond STRICTLY in JSON format with two keys:
             print(f"   -> Critic Feedback: {feedback}")
 
         if status == "APPROVED":
-            return {"critique_feedback": "", "retry_count": retry_count}
-        else:
+
             return {
-                "critique_feedback": feedback, 
-                "retry_count": retry_count + 1
+                "critique_feedback": "",
+                "retry_count": retry_count,
+                "briefing_approved": True,
+            }
+
+        else:
+
+            return {
+                "critique_feedback": feedback,
+                "retry_count": retry_count + 1,
+                "briefing_approved": False,
             }
 
     except Exception as e:
-        print(f"⚠️ Critic evaluation error ({e}). Defaulting to APPROVED.")
-        return {"critique_feedback": "", "retry_count": retry_count}
+
+        print(
+            f"⚠️ Critic evaluation error: {e}"
+        )
+
+        return {
+            "critique_feedback":
+                "Critic evaluation failed.",
+
+            "retry_count":
+                state.get("max_retries", 2),
+
+            "briefing_approved":
+                False,
+        }
 
 
 def critic_router(state: PlatformState) -> Literal["deliver", "revise", "end_pipeline"]:
@@ -405,9 +628,16 @@ def critic_router(state: PlatformState) -> Literal["deliver", "revise", "end_pip
     max_retries = state.get("max_retries", 2)
 
     # Safety cap against infinite revision loops
+    # if retry_count >= max_retries:
+    #     print(f"   -> Max retries ({max_retries}) reached. Proceeding to delivery.")
+    #     return "deliver"
+
     if retry_count >= max_retries:
-        print(f"   -> Max retries ({max_retries}) reached. Proceeding to delivery.")
-        return "deliver"
+        print(
+            f"   -> Max retries ({max_retries}) reached "
+            "without critic approval. Terminating pipeline."
+        )
+        return "end_pipeline"
 
     if feedback:
         return "revise"
@@ -501,14 +731,38 @@ def run_multi_user_cron():
                 "final_briefing": "",
                 "critique_feedback": "",
                 "retry_count": 0,
-                "max_retries": 2
+                "max_retries": 2,
+                "briefing_approved": False,
             }
             result = agent.invoke(initial_state)
-            if result.get("final_briefing"):
-                print("\n" + "="*50)
-                print("📰 APPROVED DAILY BRIEFING OUTPUT:")
-                print("="*50)
-                print(result["final_briefing"])
+            if result.get("briefing_approved"):
+
+                print("\n" + "=" * 50)
+
+                print(
+                    "📰 APPROVED DAILY BRIEFING OUTPUT:"
+                )
+
+                print("=" * 50)
+
+                print(
+                    result["final_briefing"]
+                )
+
+            else:
+
+                print("\n" + "=" * 50)
+
+                print(
+                    "⚠️ BRIEFING NOT APPROVED"
+                )
+
+                print("=" * 50)
+
+                print(
+                    "The briefing failed quality review "
+                    "and will not be delivered."
+                )
             return
 
         for user in users:
@@ -522,7 +776,8 @@ def run_multi_user_cron():
                 "final_briefing": "",
                 "critique_feedback": "",
                 "retry_count": 0,
-                "max_retries": 2
+                "max_retries": 2,
+                "briefing_approved": False,
             }
             
             agent.invoke(initial_state)
