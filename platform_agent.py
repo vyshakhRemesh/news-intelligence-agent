@@ -562,6 +562,8 @@ EVALUATION CRITERIA:
 
 8. Are trust or contradiction warnings only presented when actually warranted?
 
+# 9.Do not require every retrieved article to appear in the briefing. Articles that are clearly irrelevant, incorrectly classified, redundant, or lower-value may be omitted. Evaluate whether the briefing covers the most relevant distinct stories available.
+
 Respond STRICTLY in JSON format with two keys:
 {{
     "status": "APPROVED" or "NEEDS_REVISION",
