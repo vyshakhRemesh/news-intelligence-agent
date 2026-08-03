@@ -66,3 +66,6 @@ dist/
 # ==========================
 *.tmp
 *.temp
+
+# Generated reports
+src/reports/*.pdf
