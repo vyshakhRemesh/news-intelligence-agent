@@ -427,8 +427,18 @@ def delivery_node(state: PlatformState):
     print("🚀 DELIVERY: Processing final briefing...")
 
     if not state.get("final_briefing"):
-        print("⚠️ No valid briefing available.")
-        return state
+
+        print("⚠️ AI briefing unavailable. Using fallback briefing.")
+
+        article_count = len(state.get("retrieved_articles", []))
+
+        state["final_briefing"] = (
+            f"The AI-generated executive summary is unavailable because the "
+            f"language model reached its request limit.\n\n"
+            f"This report contains {article_count} retrieved news articles "
+            f"collected from trusted sources. Please refer to the detailed "
+            f"article analysis section for the latest updates."
+        )
 
     db = SessionLocal()
 
@@ -442,7 +452,7 @@ def delivery_node(state: PlatformState):
             topic_preferences=",".join(
                 state.get("user_preferences", [])
             ),
-            content=state.get("final_briefing", "")
+            content=state["final_briefing"]
         )
 
         db.add(new_briefing)
