@@ -11,59 +11,57 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 class DataEnricher:
+    """
+    Enriches articles with sentiment, keyphrases, readability, quality score,
+    and language complexity.
+
+    NOTE: Topic classification is handled by BERTopic (topic_service.py).
+    This class does NOT assign topics — only content quality metrics.
+    """
+
     def __init__(self):
         self.textblob_available = TEXTBLOB_AVAILABLE
-        self.topic_keywords = {
-            'technology': ['ai', 'machine learning', 'software', 'hardware', 'cloud', 'digital', 'tech'],
-            'business': ['market', 'stock', 'investment', 'finance', 'economic', 'trade', 'profit'],
-            'politics': ['government', 'election', 'vote', 'parliament', 'president', 'policy'],
-            'health': ['healthcare', 'medical', 'hospital', 'disease', 'vaccine', 'treatment'],
-            'science': ['research', 'scientist', 'discovery', 'experiment', 'space', 'climate'],
-            'sports': ['football', 'cricket', 'basketball', 'tennis', 'olympic', 'match'],
-            'entertainment': ['movie', 'music', 'concert', 'streaming', 'celebrity', 'award'],
-            'crime': ['crime', 'police', 'murder', 'theft', 'investigation', 'court']
-        }
         logger.info("✅ Data Enricher initialized")
-    
+
     def enrich_article(self, title: str, description: str = "", content: str = "") -> Dict[str, Any]:
         combined_text = f"{title} {description} {content}".strip()
         if not combined_text:
             return {'error': 'No text provided for enrichment'}
-        
+
         enrichment = {
             'title': title,
             'description': description,
             'content': content,
             'enriched_at': datetime.utcnow().isoformat()
         }
-        
+
         sentiment = self._analyze_sentiment(combined_text)
         enrichment['sentiment'] = sentiment
-        
-        topics = self._classify_topics(combined_text)
-        enrichment['topics'] = topics
-        enrichment['primary_topic'] = topics[0] if topics else 'general'
-        
+
+        # REMOVED: keyword-based topic classification
+        # Topics are assigned by BERTopic in topic_service.py
+
         keyphrases = self._extract_keyphrases(combined_text)
         enrichment['keyphrases'] = keyphrases[:10]
-        
+
         readability = self._calculate_readability(combined_text)
         enrichment['readability'] = readability
-        
+
         stats = self._get_text_statistics(combined_text)
         enrichment['statistics'] = stats
-        
+
         quality_score = self._calculate_quality_score(enrichment)
         enrichment['quality_score'] = quality_score
-        
+
         complexity = self._analyze_language_complexity(combined_text)
         enrichment['language_complexity'] = complexity
-        
+
         enrichment['enrichment_summary'] = self.get_enrichment_summary(enrichment)
-        
+
         return enrichment
-    
+
     def _analyze_sentiment(self, text: str) -> Dict[str, Any]:
         if not self.textblob_available or not text:
             return {'polarity': 0, 'subjectivity': 0, 'label': 'neutral'}
@@ -80,17 +78,7 @@ class DataEnricher:
             return {'polarity': round(polarity, 3), 'subjectivity': round(subjectivity, 3), 'label': label}
         except:
             return {'polarity': 0, 'subjectivity': 0, 'label': 'unknown'}
-    
-    def _classify_topics(self, text: str) -> List[str]:
-        text_lower = text.lower()
-        topic_scores = {}
-        for topic, keywords in self.topic_keywords.items():
-            score = sum(1 for keyword in keywords if keyword in text_lower)
-            if score > 0:
-                topic_scores[topic] = score
-        sorted_topics = sorted(topic_scores.items(), key=lambda x: x[1], reverse=True)
-        return [topic for topic, score in sorted_topics if score > 0][:5] or ['general']
-    
+
     def _extract_keyphrases(self, text: str) -> List[str]:
         if not text:
             return []
@@ -105,7 +93,7 @@ class DataEnricher:
             if company not in keyphrases:
                 keyphrases.append(company)
         return keyphrases[:10]
-    
+
     def _calculate_readability(self, text: str) -> Dict[str, Any]:
         if not text or len(text) < 50:
             return {'score': 0, 'level': 'unknown', 'avg_sentence_length': 0}
@@ -139,7 +127,7 @@ class DataEnricher:
             }
         except:
             return {'score': 0, 'level': 'unknown', 'avg_sentence_length': 0}
-    
+
     def _count_syllables(self, word: str) -> int:
         word = word.lower()
         count = 0
@@ -156,7 +144,7 @@ class DataEnricher:
         if word.endswith('le') and len(word) > 2:
             count += 1
         return max(1, count)
-    
+
     def _get_text_statistics(self, text: str) -> Dict[str, Any]:
         if not text:
             return {'word_count': 0, 'character_count': 0, 'sentence_count': 0}
@@ -168,44 +156,41 @@ class DataEnricher:
             'character_count': len(text.replace(' ', '')),
             'sentence_count': len(sentences)
         }
-    
+
     def _calculate_quality_score(self, enrichment: Dict[str, Any]) -> int:
         score = 0
         word_count = enrichment.get('statistics', {}).get('word_count', 0)
         if word_count > 500:
-            score += 30
+            score += 35
         elif word_count > 300:
-            score += 25
+            score += 30
         elif word_count > 150:
-            score += 15
+            score += 20
         elif word_count > 50:
-            score += 5
-        
+            score += 10
+
         readability = enrichment.get('readability', {})
         flesch_score = readability.get('score', 0)
         if flesch_score >= 60:
-            score += 20
+            score += 25
         elif flesch_score >= 40:
-            score += 10
-        
+            score += 15
+
         sentiment = enrichment.get('sentiment', {})
         if sentiment.get('label') in ['positive', 'negative']:
-            score += 10
-        
+            score += 15
+
         keyphrases = enrichment.get('keyphrases', [])
         if len(keyphrases) >= 5:
-            score += 15
+            score += 25
         elif len(keyphrases) >= 3:
-            score += 10
-        
-        topics = enrichment.get('topics', [])
-        if len(topics) >= 3:
             score += 15
-        elif len(topics) >= 2:
-            score += 10
-        
+
+        # REMOVED: topic count from quality score
+        # Topics are assigned by BERTopic, not enrichment
+
         return min(100, score)
-    
+
     def _analyze_language_complexity(self, text: str) -> Dict[str, Any]:
         if not text or len(text) < 50:
             return {'vocabulary_richness': 0, 'complexity_level': 'low'}
@@ -226,18 +211,15 @@ class DataEnricher:
             return {'vocabulary_richness': round(vocabulary_richness, 3), 'complexity_level': complexity_level}
         except:
             return {'vocabulary_richness': 0, 'complexity_level': 'low'}
-    
+
     def get_enrichment_summary(self, enrichment: Dict[str, Any]) -> str:
         if not enrichment or 'error' in enrichment:
             return "No enrichment data available"
         parts = []
         sentiment = enrichment.get('sentiment', {})
         parts.append(f"Sentiment: {sentiment.get('label', 'unknown')}")
-        parts.append(f"Topic: {enrichment.get('primary_topic', 'general')}")
+        # REMOVED: primary_topic from summary (set by BERTopic, not enrichment)
         readability = enrichment.get('readability', {})
         parts.append(f"Readability: {readability.get('level', 'unknown')}")
         parts.append(f"Quality: {enrichment.get('quality_score', 0)}/100")
-        keyphrases = enrichment.get('keyphrases', [])[:3]
-        if keyphrases:
-            parts.append(f"Keyphrases: {', '.join(keyphrases)}")
         return " | ".join(parts)
