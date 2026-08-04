@@ -337,6 +337,64 @@ python main.py
 
 ---
 
+---
+
+## Run Prefect Orchestration
+
+Start the Prefect server:
+
+```bash
+prefect server start
+```
+
+Configure the Prefect API (run once):
+
+```bash
+prefect config set PREFECT_API_URL=http://127.0.0.1:4200/api
+```
+
+Start the scheduled workflows:
+
+```bash
+python -m Orchestration.prefect_flows
+```
+
+Open the Prefect Dashboard:
+
+```
+http://127.0.0.1:4200
+```
+
+The following workflows will be scheduled automatically:
+
+- **News Ingestion Pipeline** – Every 3 hours
+- **Daily News Briefing Pipeline** – Every day at 7:00 AM (Asia/Kolkata)
+
+---
+
+---
+
+
+### Contradiction Detection Demo
+
+To populate the database with demo contradiction data, run:
+
+```bash
+python -m scripts.seed_demo_contradictions
+```
+
+This script:
+
+- Inserts fictional contradictory news articles into the `raw_articles` table.
+- Executes the project's DeBERTa-based contradiction detection pipeline.
+- Automatically stores detected contradiction pairs in the `article_contradictions` table.
+- Can be run multiple times without creating duplicate demo records.
+
+The script is intended only for demonstration and testing purposes and does not affect the normal news ingestion pipeline.
+
+---
+
+
 # 🎯 Future Enhancements
 
 - Hybrid Retrieval (BM25 + Vector Search)
